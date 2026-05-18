@@ -4,12 +4,16 @@ param(
   [string]$Alias = "qwen3.6-27b",
   [int]$Port = 8080,
   [int]$ContextSize = 32768,
-  [string]$ApiKey = "yourbot-local"
+  [string]$ApiKey = "yourbot-local",
+  [switch]$Mtp,
+  [string]$MtpRepo = "unsloth/Qwen3.6-27B-MTP-GGUF:UD-Q4_K_XL",
+  [int]$MtpDraftN = 6,
+  [switch]$Offline,
+  [string]$LlamaDir = "C:\Users\teamr\Desktop\ai\llama"
 )
 
 $ErrorActionPreference = "Stop"
 $Repo = Join-Path $PSScriptRoot ".."
-$LlamaDir = "C:\Users\teamr\Desktop\ai\llama"
 $Server = Join-Path $LlamaDir "llama-server.exe"
 $ModelsDir = Join-Path $LlamaDir "models"
 $LogDir = Join-Path $Repo "logs"
@@ -31,31 +35,53 @@ if ($Quant) {
 }
 
 if (-not (Test-Path $Server)) {
-  throw "llama-server not found: $Server"
+  Write-Output "llama-server not found: $Server"
+  if ($Mtp) {
+    Write-Output "Run scripts\install-llama-mtp.cmd first, or pass -LlamaDir to a llama.cpp build with draft-mtp."
+  }
+  exit 2
 }
-if (-not (Test-Path $ModelPath)) {
+if ((-not $Mtp) -and (-not (Test-Path $ModelPath))) {
   throw "Qwen3.6 GGUF not found: $ModelPath"
+}
+if ($Mtp) {
+  $PreviousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  $HelpText = (& $Server --help 2>&1 | ForEach-Object { "$_" } | Out-String)
+  $ErrorActionPreference = $PreviousErrorActionPreference
+  if ($HelpText -notmatch "draft-mtp") {
+    Write-Output @"
+This llama-server build does not support Qwen3.6 MTP yet.
+Current server: $Server
+Need llama.cpp with '--spec-type draft-mtp' support.
+Docs: https://unsloth.ai/docs/models/qwen3.6#mtp-guide
+
+For now use:
+  scripts\server-start-fast.cmd
+"@
+    exit 3
+  }
 }
 
 try {
-  Invoke-RestMethod -Uri "http://127.0.0.1:$Port/v1/models" -Headers @{ Authorization = "Bearer $ApiKey" } -TimeoutSec 2 | Out-Null
-  exit 0
+  $Existing = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/v1/models" -Headers @{ Authorization = "Bearer $ApiKey" } -TimeoutSec 2
+  $ExistingJson = $Existing | ConvertTo-Json -Depth 8
+  if ($ExistingJson -match [regex]::Escape($Alias)) {
+    exit 0
+  }
+  Get-Process llama-server -ErrorAction SilentlyContinue | Stop-Process -Force
 } catch {
   Get-Process llama-server -ErrorAction SilentlyContinue | Stop-Process -Force
 }
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $Args = @(
-  "-m", $ModelPath,
   "-ngl", "99",
   "--flash-attn", "on",
   "-c", "$ContextSize",
-  "--rope-scaling", "yarn",
-  "--yarn-orig-ctx", "32768",
   "-ctk", "q4_0",
   "-ctv", "q4_0",
-  "--parallel", "1",
-  "--no-cont-batching",
+  "-np", "1",
   "-b", "1024",
   "-ub", "512",
   "--jinja",
@@ -70,6 +96,18 @@ $Args = @(
   "--port", "$Port",
   "--api-key", $ApiKey
 )
+if ($Mtp) {
+  $env:LLAMA_CACHE = $MtpRepo.Split(":")[0]
+  $Args = @("-hf", $MtpRepo) + $Args + @(
+    "--spec-type", "draft-mtp",
+    "--spec-draft-n-max", "$MtpDraftN"
+  )
+  if ($Offline) {
+    $Args += "--offline"
+  }
+} else {
+  $Args = @("-m", $ModelPath, "--rope-scaling", "yarn", "--yarn-orig-ctx", "32768") + $Args + @("--no-cont-batching")
+}
 
 $Process = Start-Process -FilePath $Server -WorkingDirectory $LlamaDir -ArgumentList $Args -RedirectStandardOutput $OutLog -RedirectStandardError $ErrLog -WindowStyle Hidden -PassThru
 for ($i = 0; $i -lt 120; $i++) {

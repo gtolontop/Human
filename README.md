@@ -108,6 +108,10 @@ La memoire reste locale dans `state/`, ignoree par Git.
 - `scripts\chat-mock.cmd` : chat offline sans modele.
 - `scripts\server-start-fast.cmd` : Qwen3.6 `IQ2_XXS`, plus rapide.
 - `scripts\server-start-quality.cmd` : Qwen3.6 `IQ2_M`, un peu plus qualitatif.
+- `scripts\server-check-mtp.cmd` : verifie si ton `llama-server.exe` supporte `--spec-type draft-mtp`.
+- `scripts\install-llama-mtp.cmd` : installe/maj llama.cpp CUDA side-by-side dans `C:\Users\teamr\Desktop\ai\llama-mtp`.
+- `scripts\server-start-mtp.cmd` : lance `unsloth/Qwen3.6-27B-MTP-GGUF:UD-Q4_K_XL` si llama.cpp est assez recent.
+- `scripts\chat-mtp.cmd` : chat complet avec le serveur MTP.
 - `scripts\server-status.cmd` : process, API, GPU.
 - `scripts\server-stop.cmd` : stoppe `llama-server.exe`.
 - `scripts\pipeline-rebuild-all.cmd` : regenere ingestion/anonymisation/datasets/fewshots/eval.
@@ -294,6 +298,30 @@ Par defaut, `start_qwen36_server.ps1` utilise:
 
 - `C:\Users\teamr\Desktop\ai\llama\llama-server.exe`
 - `C:\Users\teamr\Desktop\ai\llama\models\Qwen3.6-27B-UD-IQ2_XXS.gguf`
+
+### Qwen3.6 MTP Unsloth
+
+Unsloth indique que les GGUF MTP peuvent accelerer l'inference via llama.cpp avec:
+
+```powershell
+llama-server -hf unsloth/Qwen3.6-27B-MTP-GGUF:UD-Q4_K_XL `
+  -ngl 99 -c 8192 -fa on -np 1 `
+  --spec-type draft-mtp --spec-draft-n-max 6
+```
+
+Dans ce repo:
+
+```cmd
+scripts\server-check-mtp.cmd
+scripts\install-llama-mtp.cmd
+scripts\server-start-mtp.cmd
+scripts\chat-mtp.cmd
+```
+
+Si `server-check-mtp.cmd` dit que `draft-mtp` n'est pas supporte, ton binaire llama.cpp est trop vieux.
+`install-llama-mtp.cmd` telecharge le dernier build Windows CUDA depuis les releases officielles llama.cpp
+dans `C:\Users\teamr\Desktop\ai\llama-mtp` sans ecraser ton dossier `ai\llama`.
+Le mode fast classique reste dispo avec `scripts\server-start-fast.cmd`.
 - port `8080`
 - alias modele `qwen3.6-27b`
 
