@@ -28,7 +28,8 @@ def load_fewshot_examples(path: Path | None, *, limit: int) -> list[dict[str, An
     else:
         payload = read_json(path)
         rows = payload if isinstance(payload, list) else payload.get("examples", [])
-    return [_normalize_example(row) for row in rows[:limit] if isinstance(row, dict)]
+    examples = [_normalize_example(row) for row in rows if isinstance(row, dict)]
+    return [example for example in examples if example["target_messages"]][:limit]
 
 
 def load_history(path: Path | None) -> list[str]:
