@@ -67,6 +67,30 @@ python scripts/build_dataset.py `
   --output data/processed/dataset.jsonl
 ```
 
+Pour produire directement le format nettoye demande pour le style personnel:
+
+```powershell
+python scripts/build_cleaned_conversations.py `
+  --input data/raw `
+  --output data/processed/conversations.cleaned.jsonl `
+  --target-user-id "123456789012345678"
+```
+
+Chaque ligne de `conversations.cleaned.jsonl` suit ce format:
+
+```json
+{"conversation_id":"discord_000001","context":[{"speaker":"PERSON_A","text":"ME tu check <URL> ?"}],"target_messages":["ouais j'arrive","2 sec jsp"],"meta":{"source":"discord","timestamps":["2026-01-01T10:00:30+00:00","2026-01-01T10:01:00+00:00"]}}
+```
+
+Dans ce format:
+
+- toi = `ME`;
+- les autres participants = `PERSON_A`, `PERSON_B`, etc.;
+- les autres ne sont jamais dans `target_messages`, seulement dans `context`;
+- tes messages consecutifs proches dans le temps sont regroupes en reply bursts;
+- emails, telephones, URLs, invitations, mentions, IDs Discord et lieux evidents sont masques;
+- le texte n'est pas corrige, donc les fautes et abreviations restent telles quelles.
+
 5. Profil de style:
 
 ```powershell
