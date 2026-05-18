@@ -10,6 +10,7 @@ htmlcov/
 .env
 .env.*
 !.env.example
+config/abbreviations.json
 
 data/raw/*
 data/processed/*

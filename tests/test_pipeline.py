@@ -5,6 +5,14 @@ from tempfile import TemporaryDirectory
 
 from src.anonymizer import anonymize_rows
 from src.cleaned_conversations import CleanedConversationConfig, build_cleaned_conversations
+from src.conversation_features import (
+    build_conversation_hints,
+    detect_abbreviations,
+    detect_intent,
+    detect_language,
+    load_abbreviations,
+    looks_like_unknown_slang,
+)
 from src.cli import main as cli_main
 from src.dataset_builder import DatasetConfig, build_training_examples
 from src.discord_export import parse_discord_chat_exporter
@@ -122,6 +130,19 @@ def test_load_fewshot_examples_json() -> None:
 
 def test_cli_mock_prints_discord_lines() -> None:
     assert cli_main(["--mock", "--style-profile", "missing.json", "--fewshots", "missing.json", "tu peux check ?"]) == 0
+
+
+def test_conversation_features_understand_short_slang() -> None:
+    abbreviations = load_abbreviations(None)
+    detected = detect_abbreviations("tfq ?", abbreviations)
+    hints = build_conversation_hints("tfq ?", [], abbreviations)
+
+    assert detected["tfq"] == "tu fais quoi"
+    assert detect_intent("tfq ?", detected) == "activity_question"
+    assert detect_intent("yo ma boy") == "greeting"
+    assert detect_language("hey what are you doing bro") == "en"
+    assert looks_like_unknown_slang("raoe lourd", abbreviations) is True
+    assert "pas repeter la question" in hints
 
 
 def test_style_eval_aggregates_and_blind_review() -> None:

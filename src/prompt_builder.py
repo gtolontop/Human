@@ -62,8 +62,19 @@ def build_chat_messages(
     fewshot_examples: list[dict[str, Any]],
     thinking: bool,
     social_context: str | None = None,
+    conversation_hints: str | None = None,
 ) -> list[dict[str, str]]:
-    messages = [{"role": "system", "content": _system_prompt(style_profile, thinking=thinking, social_context=social_context)}]
+    messages = [
+        {
+            "role": "system",
+            "content": _system_prompt(
+                style_profile,
+                thinking=thinking,
+                social_context=social_context,
+                conversation_hints=conversation_hints,
+            ),
+        }
+    ]
     for example in fewshot_examples:
         messages.append({"role": "user", "content": _format_example_turn(example["context"])})
         messages.append({"role": "assistant", "content": messages_json(example["target_messages"])})
@@ -71,7 +82,13 @@ def build_chat_messages(
     return messages
 
 
-def _system_prompt(style_profile: dict[str, Any] | None, *, thinking: bool, social_context: str | None = None) -> str:
+def _system_prompt(
+    style_profile: dict[str, Any] | None,
+    *,
+    thinking: bool,
+    social_context: str | None = None,
+    conversation_hints: str | None = None,
+) -> str:
     compact_profile = json.dumps(style_profile or {}, ensure_ascii=False, separators=(",", ":"))
     thinking_line = (
         "Tu peux raisonner brièvement en interne, mais la sortie visible reste seulement le JSON final."
@@ -79,7 +96,8 @@ def _system_prompt(style_profile: dict[str, Any] | None, *, thinking: bool, soci
         else "Ne produis aucune trace de raisonnement visible; seulement le JSON final."
     )
     social = f"\nEtat social/emotionnel local:\n{social_context}" if social_context else ""
-    return f"{SYSTEM_PROMPT}\nProfil de style agrégé anonymisé:\n{compact_profile}{social}\n{thinking_line}"
+    hints = f"\nSignaux du dernier message:\n{conversation_hints}" if conversation_hints else ""
+    return f"{SYSTEM_PROMPT}\nProfil de style agrégé anonymisé:\n{compact_profile}{social}{hints}\n{thinking_line}"
 
 
 def _format_user_turn(context: list[str], user_message: str) -> str:

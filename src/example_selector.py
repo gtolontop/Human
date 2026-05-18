@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .conversation_features import detect_intent, detect_language
 from .data_io import iter_jsonl
 from .prompt_builder import load_fewshot_examples
 
@@ -65,17 +66,28 @@ def select_relevant_examples(
     *,
     user_message: str,
     history: list[str],
+    language: str | None = None,
+    intent: str | None = None,
     limit: int,
 ) -> list[dict[str, Any]]:
     if limit <= 0 or not bank:
         return []
     query_tokens = _tokens("\n".join([*history[-8:], user_message]))
     ranked = []
+    language = language or detect_language(user_message)
+    intent = intent or detect_intent(user_message)
     for example in bank:
         context_text = "\n".join(example.get("context", [])[-8:])
+        target_text = "\n".join(example.get("target_messages", []))
         overlap = _jaccard(query_tokens, _tokens(context_text))
         score = quality_score(example) + (overlap * 1.6)
-        if overlap > 0 or _short_intent_match(user_message, context_text):
+        example_language = detect_language(f"{context_text}\n{target_text}")
+        example_intent = detect_intent(context_text)
+        if example_language == language:
+            score += 0.18
+        if example_intent == intent:
+            score += 0.22
+        if overlap > 0 or _short_intent_match(user_message, context_text) or example_intent == intent:
             ranked.append((score, example))
     if not ranked:
         ranked = [(quality_score(example), example) for example in bank[:200]]

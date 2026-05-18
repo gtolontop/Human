@@ -59,6 +59,8 @@ Dans le chat:
 Le CLI selectionne automatiquement des exemples proches dans
 `data/processed/conversations.cleaned.jsonl` a chaque message. Ca evite d'envoyer
 toujours les memes fewshots et limite les reponses generiques.
+Il ajoute aussi des signaux locaux au prompt: langue detectee (`fr`, `en`, `mixed`),
+intention courte (`tfq`, `pq`, salutation, question), abreviations connues, et regles anti-echo.
 Pour desactiver ce comportement:
 
 ```powershell
@@ -107,6 +109,7 @@ La memoire reste locale dans `state/`, ignoree par Git.
 - `scripts\server-status.cmd` : process, API, GPU.
 - `scripts\server-stop.cmd` : stoppe `llama-server.exe`.
 - `scripts\pipeline-rebuild-all.cmd` : regenere ingestion/anonymisation/datasets/fewshots/eval.
+- `scripts\discord-exporter.cmd` : ouvre DiscordChatExporter et rappelle de sauvegarder dans `data\raw`.
 - `scripts\social-sim.cmd` : simulation multi-personnes.
 - `scripts\eval-mock.cmd` : evaluation locale mock.
 - `scripts\eval-qwen.cmd` : evaluation locale avec Qwen.
@@ -127,6 +130,14 @@ $env:OPENAI_MODEL="qwen3.6-27b"
 ```
 
 ## Workflow local
+
+Le chemin rapide:
+
+1. Ouvre DiscordChatExporter avec `scripts\discord-exporter.cmd` ou l'option 12 du menu.
+2. Exporte chaque conversation au format JSON dans `data/raw/`, avec un nom de fichier distinct.
+3. Lance `scripts\pipeline-rebuild-all.cmd` pour reconstruire le dataset prive complet.
+
+En manuel:
 
 1. Mets tes exports DiscordChatExporter JSON dans `data/raw/`.
 2. Ingestion:
@@ -152,6 +163,21 @@ python scripts/anonymize.py `
   --output data/processed/anonymized.jsonl `
   --target-author-id "123456789012345678" `
   --terms-file data/raw/private_terms.txt
+```
+
+## Abreviations et slang local
+
+Le fichier suivi `config/abbreviations.example.json` montre le format. Pour ajouter tes propres raccourcis
+sans les publier, cree `config/abbreviations.json`; ce fichier est ignore par Git.
+
+```json
+{
+  "abbreviations": {
+    "tfq": "tu fais quoi",
+    "pq": "pourquoi",
+    "cdq": "c'est quoi"
+  }
+}
 ```
 
 4. Dataset:

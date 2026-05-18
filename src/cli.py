@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from pathlib import Path
 
+from .conversation_features import build_conversation_hints, detect_abbreviations, detect_intent, detect_language, load_abbreviations
 from .data_io import read_json
 from .example_selector import load_example_bank, select_relevant_examples
 from .model_client import ModelClientError, OpenAICompatibleClient, OpenAICompatibleConfig
@@ -25,6 +27,7 @@ DEFAULT_STYLE_PROFILE = Path("data/processed/style_profile.json")
 DEFAULT_FEWSHOTS = Path("data/processed/fewshot_examples.json")
 DEFAULT_EXAMPLE_BANK = Path("data/processed/conversations.cleaned.jsonl")
 DEFAULT_SOCIAL_STATE = Path("state/social_state.json")
+DEFAULT_ABBREVIATIONS = Path("config/abbreviations.json")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -37,6 +40,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fewshots", type=Path, default=DEFAULT_FEWSHOTS)
     parser.add_argument("--fewshot-limit", type=int, default=6)
     parser.add_argument("--example-bank", type=Path, default=DEFAULT_EXAMPLE_BANK)
+    parser.add_argument("--abbreviations", type=Path, default=DEFAULT_ABBREVIATIONS)
     parser.add_argument("--no-dynamic-fewshots", action="store_true")
     parser.add_argument("--context", action="append", default=[], help="Recent history line, repeatable.")
     parser.add_argument("--history", type=Path, help="Optional text or JSONL history file.")
@@ -63,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     style_profile = _read_optional_json(args.style_profile)
+    abbreviations = load_abbreviations(args.abbreviations)
     static_fewshots = load_fewshot_examples(args.fewshots, limit=args.fewshot_limit)
     example_bank = [] if args.no_dynamic_fewshots else load_example_bank(args.example_bank)
     history = [*load_history(args.history), *args.context]
@@ -87,6 +92,7 @@ def main(argv: list[str] | None = None) -> int:
             style_profile=style_profile,
             static_fewshots=static_fewshots,
             example_bank=example_bank,
+            abbreviations=abbreviations,
             history=history,
             thinking=thinking,
             social_state=social_state,
@@ -97,7 +103,18 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("message is required via argument/stdin, or use --chat")
 
     try:
-        raw = _generate_raw(args, client, user_message, history, style_profile, static_fewshots, example_bank, thinking, social_state)
+        raw = _generate_raw(
+            args,
+            client,
+            user_message,
+            history,
+            style_profile,
+            static_fewshots,
+            example_bank,
+            abbreviations,
+            thinking,
+            social_state,
+        )
     except ModelClientError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -125,6 +142,7 @@ def _chat_loop(
     style_profile: dict | None,
     static_fewshots: list[dict],
     example_bank: list[dict],
+    abbreviations: dict[str, str],
     history: list[str],
     thinking: bool,
     social_state,
@@ -147,7 +165,18 @@ def _chat_loop(
             print("historique vidé")
             continue
         try:
-            raw = _generate_raw(args, client, user_message, history, style_profile, static_fewshots, example_bank, thinking, social_state)
+            raw = _generate_raw(
+                args,
+                client,
+                user_message,
+                history,
+                style_profile,
+                static_fewshots,
+                example_bank,
+                abbreviations,
+                thinking,
+                social_state,
+            )
         except ModelClientError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
@@ -171,6 +200,7 @@ def _generate_raw(
     style_profile: dict | None,
     static_fewshots: list[dict],
     example_bank: list[dict],
+    abbreviations: dict[str, str],
     thinking: bool,
     social_state,
 ) -> str:
@@ -212,14 +242,20 @@ def _generate_raw(
             )
             save_social_state(args.social_state, social_state)
         return _mock_response(user_message)
+    detected_abbreviations = detect_abbreviations(user_message, abbreviations)
+    detected_intent = detect_intent(user_message, detected_abbreviations)
+    detected_language = detect_language("\n".join([*history[-6:], user_message]))
+    conversation_hints = build_conversation_hints(user_message, history, abbreviations)
     dynamic = select_relevant_examples(
         example_bank,
         user_message=user_message,
         history=history,
+        language=detected_language,
+        intent=detected_intent,
         limit=args.fewshot_limit,
     )
     fewshots = dynamic or static_fewshots[: args.fewshot_limit]
-    raw = _call_model(args, client, user_message, history, style_profile, fewshots, thinking, social_context)
+    raw = _call_model(args, client, user_message, history, style_profile, fewshots, thinking, social_context, conversation_hints)
     messages, _strict = parse_strict_messages(raw)
     if _bad_messages(messages, user_message):
         retry_history = [
@@ -229,7 +265,7 @@ def _generate_raw(
                 "Réponds avec bon sens au dernier message, en style court Discord."
             ),
         ]
-        raw = _call_model(args, client, user_message, retry_history, style_profile, fewshots[:3], thinking, social_context)
+        raw = _call_model(args, client, user_message, retry_history, style_profile, fewshots[:3], thinking, social_context, conversation_hints)
     if social_state is not None and analysis is not None:
         update_social_state(
             social_state,
@@ -253,6 +289,7 @@ def _call_model(
     fewshots: list[dict],
     thinking: bool,
     social_context: str | None,
+    conversation_hints: str | None,
 ) -> str:
     prompt_messages = build_chat_messages(
         user_message=user_message,
@@ -261,6 +298,7 @@ def _call_model(
         fewshot_examples=fewshots,
         thinking=thinking,
         social_context=social_context,
+        conversation_hints=conversation_hints,
     )
     return client.chat(
         prompt_messages,
@@ -274,21 +312,40 @@ def _call_model(
 def _bad_messages(messages: list[str], user_message: str) -> bool:
     if not messages:
         return True
-    lowered_user = user_message.casefold().strip(" ?!.")
-    lowered = [message.casefold().strip(" ?!.") for message in messages]
+    lowered_user = _normalize_for_compare(user_message)
+    lowered = [_normalize_for_compare(message) for message in messages]
     if lowered_user and any(message == lowered_user for message in lowered):
+        return True
+    if lowered_user and any(_token_overlap_ratio(message, lowered_user) >= 0.82 for message in lowered):
         return True
     if len(set(lowered)) < len(lowered):
         return True
     joined = " ".join(lowered)
-    bad_short = {"c'est la vie", "tfq", "...", "non", "pourquoi", "pq"}
-    if joined in bad_short and lowered_user not in {"ça va", "ca va"}:
+    bad_short = {"cest la vie", "tfq", "...", "non", "pourquoi", "pq", "pk", "la vie"}
+    if joined in bad_short and lowered_user not in {"ca va", "ça va", "cv"}:
         return True
-    if lowered_user in {"pq", "pourquoi"} and joined in {"pourquoi", "pq"}:
+    if lowered_user in {"pq", "pk", "pourquoi"} and joined in {"pourquoi", "pq", "pk"}:
         return True
     if lowered_user in {"tfq", "tu fais quoi"} and ("tfq" in lowered or "tu fais quoi" in lowered):
         return True
+    if "?" in user_message and joined in {"ok", "okok", "ouais", "oe", "non"}:
+        return True
     return False
+
+
+def _normalize_for_compare(text: str) -> str:
+    text = text.casefold().strip()
+    text = text.replace("’", "'").replace("é", "e").replace("è", "e").replace("ê", "e").replace("à", "a").replace("ç", "c")
+    text = re.sub(r"[^\w\s']", " ", text, flags=re.UNICODE)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _token_overlap_ratio(candidate: str, user_message: str) -> float:
+    candidate_tokens = set(candidate.split())
+    user_tokens = set(user_message.split())
+    if not candidate_tokens or not user_tokens:
+        return 0.0
+    return len(candidate_tokens & user_tokens) / max(len(candidate_tokens), 1)
 
 
 def _read_optional_json(path: Path | None) -> dict | None:
