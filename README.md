@@ -31,7 +31,7 @@ Mode offline immediat, sans modele:
 scripts\chat.cmd --mock
 ```
 
-Mode modele local, quand un endpoint OpenAI-compatible tourne sur `http://127.0.0.1:8000/v1`:
+Mode modele local Qwen3.6 quantifie via `C:\Users\teamr\Desktop\ai\llama\llama-server.exe`:
 
 ```cmd
 scripts\chat.cmd
@@ -46,14 +46,14 @@ Dans le chat:
 Commande directe sans launcher:
 
 ```powershell
-python -m src.cli --chat --base-url http://127.0.0.1:8000/v1 --model Qwen/Qwen3.6-27B
+python -m src.cli --chat --base-url http://127.0.0.1:8080/v1 --api-key yourbot-local --model qwen3.6-27b --no-response-format
 ```
 
 Copie `.env.example` vers `.env` si ton shell ne fournit pas deja ces variables:
 
 ```powershell
-$env:OPENAI_BASE_URL="http://127.0.0.1:8000/v1"
-$env:OPENAI_API_KEY="local-not-needed"
+$env:OPENAI_BASE_URL="http://127.0.0.1:8080/v1"
+$env:OPENAI_API_KEY="yourbot-local"
 $env:OPENAI_MODEL="qwen3.6-27b"
 ```
 
@@ -138,8 +138,10 @@ python scripts/build_fewshot_examples.py `
 
 ```powershell
 python -m src.cli `
-  --base-url http://localhost:8000/v1 `
-  --model Qwen/Qwen3.6-27B `
+  --base-url http://127.0.0.1:8080/v1 `
+  --api-key yourbot-local `
+  --model qwen3.6-27b `
+  --no-response-format `
   --style-profile data/processed/style_profile.json `
   --fewshots data/processed/fewshot_examples.json `
   "il a dit quoi du coup ?"
@@ -148,7 +150,7 @@ python -m src.cli `
 ou apres installation editable:
 
 ```powershell
-human-style --base-url http://localhost:8000/v1 --model Qwen/Qwen3.6-27B "tu peux repondre a ca ?"
+human-style --base-url http://127.0.0.1:8080/v1 --api-key yourbot-local --model qwen3.6-27b --no-response-format "tu peux repondre a ca ?"
 ```
 
 Par defaut, le CLI affiche les messages un par un, comme Discord. Pour recuperer le JSON strict:
@@ -167,26 +169,24 @@ Options utiles:
 - `--mock` pour tester offline sans modele;
 - `--history history.txt` ou plusieurs `--context "PERSON_A: ..."` pour passer un historique recent.
 
-Exemple vLLM:
+Serveur Qwen3.6 quantifie deja configure:
 
 ```powershell
-python -m vllm.entrypoints.openai.api_server `
-  --model Qwen/Qwen3.6-27B `
-  --host 127.0.0.1 `
-  --port 8000
-
-python -m src.cli --base-url http://127.0.0.1:8000/v1 --model Qwen/Qwen3.6-27B "tu rep quoi ?"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start_qwen36_server.ps1
+python -m src.cli --base-url http://127.0.0.1:8080/v1 --api-key yourbot-local --model qwen3.6-27b --no-response-format "tu rep quoi ?"
 ```
 
-Exemple SGLang:
+Par defaut, `start_qwen36_server.ps1` utilise:
+
+- `C:\Users\teamr\Desktop\ai\llama\llama-server.exe`
+- `C:\Users\teamr\Desktop\ai\llama\models\Qwen3.6-27B-UD-IQ2_XXS.gguf`
+- port `8080`
+- alias modele `qwen3.6-27b`
+
+Autres endpoints OpenAI-compatible restent possibles, par exemple vLLM/SGLang:
 
 ```powershell
-python -m sglang.launch_server `
-  --model-path Qwen/Qwen3.6-27B `
-  --host 127.0.0.1 `
-  --port 8000
-
-python -m src.cli --base-url http://127.0.0.1:8000/v1 --model Qwen/Qwen3.6-27B "il veut quoi lui ?"
+python -m src.cli --base-url http://127.0.0.1:8000/v1 --model autre-modele "il veut quoi lui ?"
 ```
 
 Le CLI ne loggue pas les prompts, les fewshots, ni le dataset. Les erreurs endpoint sont tronquees.
@@ -235,8 +235,9 @@ Pour utiliser un endpoint OpenAI-compatible:
 ```powershell
 python scripts/run_style_eval.py `
   --eval data/processed/eval.jsonl `
-  --base-url http://127.0.0.1:8000/v1 `
-  --model Qwen/Qwen3.6-27B `
+  --base-url http://127.0.0.1:8080/v1 `
+  --api-key yourbot-local `
+  --model qwen3.6-27b `
   --temperature 0.7 `
   --top-p 0.9 `
   --blind-review
