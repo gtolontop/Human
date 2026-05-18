@@ -13,7 +13,7 @@ from src.conversation_features import (
     load_abbreviations,
     looks_like_unknown_slang,
 )
-from src.cli import main as cli_main
+from src.cli import _response_issue, main as cli_main
 from src.dataset_builder import DatasetConfig, build_training_examples
 from src.discord_export import parse_discord_chat_exporter
 from src.message_splitter import parse_model_messages
@@ -130,6 +130,12 @@ def test_load_fewshot_examples_json() -> None:
 
 def test_cli_mock_prints_discord_lines() -> None:
     assert cli_main(["--mock", "--style-profile", "missing.json", "--fewshots", "missing.json", "tu peux check ?"]) == 0
+
+
+def test_cli_rejects_bad_short_intent_answers() -> None:
+    assert _response_issue(["salut", "tu vas ?"], "cv?", "status_question") == "status_question_no_answer"
+    assert _response_issue(["mdrr", "rien", "bref"], "tfq", "activity_question") == "activity_question_filler"
+    assert _response_issue(["rien la", "et toi"], "tfq", "activity_question") is None
 
 
 def test_conversation_features_understand_short_slang() -> None:

@@ -257,15 +257,20 @@ def _generate_raw(
     fewshots = dynamic or static_fewshots[: args.fewshot_limit]
     raw = _call_model(args, client, user_message, history, style_profile, fewshots, thinking, social_context, conversation_hints)
     messages, _strict = parse_strict_messages(raw)
-    if _bad_messages(messages, user_message):
+    issue = _response_issue(messages, user_message, detected_intent)
+    if issue:
         retry_history = [
             *history,
             (
-                "SYSTEM_FEEDBACK: La réponse précédente était trop générique, répétée ou hors contexte. "
-                "Réponds avec bon sens au dernier message, en style court Discord."
+                f"SYSTEM_FEEDBACK: La réponse précédente est refusée ({issue}). "
+                "Réponds au sens exact du dernier message, en style court Discord. "
+                "Pas de salutation si USER demande si ça va. Pas de filler gratuit."
             ),
         ]
         raw = _call_model(args, client, user_message, retry_history, style_profile, fewshots[:3], thinking, social_context, conversation_hints)
+        messages, _strict = parse_strict_messages(raw)
+        if _response_issue(messages, user_message, detected_intent):
+            raw = _fallback_response(detected_intent, detected_language)
     if social_state is not None and analysis is not None:
         update_social_state(
             social_state,
@@ -309,28 +314,83 @@ def _call_model(
     )
 
 
-def _bad_messages(messages: list[str], user_message: str) -> bool:
+def _response_issue(messages: list[str], user_message: str, intent: str) -> str | None:
     if not messages:
-        return True
+        return "empty"
     lowered_user = _normalize_for_compare(user_message)
     lowered = [_normalize_for_compare(message) for message in messages]
     if lowered_user and any(message == lowered_user for message in lowered):
-        return True
+        return "echo"
     if lowered_user and any(_token_overlap_ratio(message, lowered_user) >= 0.82 for message in lowered):
-        return True
+        return "near_echo"
     if len(set(lowered)) < len(lowered):
-        return True
+        return "duplicate"
     joined = " ".join(lowered)
     bad_short = {"cest la vie", "tfq", "...", "non", "pourquoi", "pq", "pk", "la vie"}
     if joined in bad_short and lowered_user not in {"ca va", "ça va", "cv"}:
-        return True
+        return "generic_short"
     if lowered_user in {"pq", "pk", "pourquoi"} and joined in {"pourquoi", "pq", "pk"}:
-        return True
+        return "question_echo"
     if lowered_user in {"tfq", "tu fais quoi"} and ("tfq" in lowered or "tu fais quoi" in lowered):
-        return True
+        return "activity_echo"
     if "?" in user_message and joined in {"ok", "okok", "ouais", "oe", "non"}:
+        return "question_generic"
+    if intent == "status_question" and _bad_status_answer(joined):
+        return "status_question_no_answer"
+    if intent == "activity_question" and _bad_activity_answer(joined, len(messages)):
+        return "activity_question_filler"
+    return None
+
+
+def _bad_messages(messages: list[str], user_message: str) -> bool:
+    return _response_issue(messages, user_message, detect_intent(user_message)) is not None
+
+
+def _bad_status_answer(joined: str) -> bool:
+    status_words = {
+        "ca va",
+        "cv",
+        "bien",
+        "bof",
+        "oui",
+        "ouais",
+        "oe",
+        "non",
+        "trkl",
+        "tranquille",
+        "fatigue",
+        "mort",
+        "nickel",
+        "jsp",
+    }
+    if any(word in joined for word in status_words):
+        return False
+    if any(greeting in joined for greeting in ("salut", "yo", "hey", "cc", "coucou")):
         return True
-    return False
+    return joined.endswith("?")
+
+
+def _bad_activity_answer(joined: str, message_count: int) -> bool:
+    if any(bad in joined.split() for bad in ("bref", "tfq")):
+        return True
+    activity_words = {"rien", "pc", "jeu", "joue", "regarde", "check", "code", "bosse", "mange", "dodo", "chill"}
+    if any(word in joined for word in activity_words):
+        return False
+    if message_count > 2 and any(filler in joined for filler in ("mdr", "mdrr", "ptdr")):
+        return True
+    return joined.endswith("?")
+
+
+def _fallback_response(intent: str, language: str) -> str:
+    if intent == "status_question":
+        return messages_json(["ouais cv", "et toi"])
+    if intent == "activity_question":
+        if language in {"en", "mixed"}:
+            return messages_json(["nothing rn", "u ?"])
+        return messages_json(["rien la", "et toi"])
+    if intent == "reason_question":
+        return messages_json(["jsp trop", "ptet"])
+    return messages_json(["jsp", "att"])
 
 
 def _normalize_for_compare(text: str) -> str:
