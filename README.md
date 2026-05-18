@@ -184,6 +184,48 @@ python scripts/evaluate_style.py `
 
 Le rapport ne contient que des compteurs et scores, pas d'extraits longs.
 
+## Evaluation locale du style
+
+Pour construire un fichier d'evaluation depuis les conversations nettoyees:
+
+```powershell
+python scripts/build_eval_split.py `
+  --input data/processed/conversations.cleaned.jsonl `
+  --output data/processed/eval.jsonl `
+  --limit 100
+```
+
+Pour generer des reponses avec le mock offline et produire les rapports:
+
+```powershell
+python scripts/run_style_eval.py `
+  --eval data/processed/eval.jsonl `
+  --mock `
+  --blind-review
+```
+
+Pour utiliser un endpoint OpenAI-compatible:
+
+```powershell
+python scripts/run_style_eval.py `
+  --eval data/processed/eval.jsonl `
+  --base-url http://127.0.0.1:8000/v1 `
+  --model Qwen/Qwen3.6-27B `
+  --temperature 0.7 `
+  --top-p 0.9 `
+  --blind-review
+```
+
+Sorties locales:
+
+- `reports/eval_style.md`
+- `reports/eval_style.json`
+- `reports/blind_review.jsonl` si `--blind-review` est active
+
+Les metriques couvrent longueur moyenne, nombre de messages par reponse, abreviations,
+ponctuation, signaux francais/anglais, similarite lexicale et tics de langage.
+Les rapports ne contiennent que des statistiques et des micro-extraits tronques.
+
 ## Format dataset
 
 Chaque ligne de `dataset.jsonl` ressemble a ceci:
