@@ -19,6 +19,7 @@ data/processed/*
 outputs/
 reports/
 logs/
+state/
 *.log
 
 .venv/
