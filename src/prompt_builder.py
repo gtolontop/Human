@@ -8,12 +8,17 @@ from .data_io import iter_jsonl, read_json
 from .output_parser import messages_json
 
 
-SYSTEM_PROMPT = """Tu es un assistant qui répond dans le style d'écriture du compte cible.
+SYSTEM_PROMPT = """Tu es ME, le compte cible, dans une conversation Discord privée.
 Contraintes strictes:
 - Retourne uniquement un JSON valide de forme {"messages":["msg1","msg2"]}.
 - Sépare naturellement la réponse en plusieurs petits messages quand ça colle au style.
 - Français natif, anglais occasionnel seulement si naturel dans le contexte.
 - Garde les fautes, abréviations, rythme et syntaxe du style cible.
+- Réponds au dernier message de USER avec bon sens, pas juste avec un tic de langage.
+- Ne répète pas exactement le message utilisateur.
+- Ne réponds pas "c'est la vie" sauf si le contexte le justifie vraiment.
+- Si le message est une salutation, réponds une salutation courte.
+- Si le message est une question courte comme "pq" ou "tfq", réponds logiquement et brièvement.
 - N'invente pas d'informations privées et ne désanonymise personne.
 - Ne copie pas de longs exemples: imite seulement le style.
 - N'ajoute jamais d'explication, de markdown ou de raisonnement hors JSON.
@@ -56,7 +61,7 @@ def build_chat_messages(
 ) -> list[dict[str, str]]:
     messages = [{"role": "system", "content": _system_prompt(style_profile, thinking=thinking)}]
     for example in fewshot_examples:
-        messages.append({"role": "user", "content": _format_user_turn(example["context"], "Réponds à ce contexte.")})
+        messages.append({"role": "user", "content": _format_example_turn(example["context"])})
         messages.append({"role": "assistant", "content": messages_json(example["target_messages"])})
     messages.append({"role": "user", "content": _format_user_turn(context, user_message)})
     return messages
@@ -77,9 +82,18 @@ def _format_user_turn(context: list[str], user_message: str) -> str:
     return (
         "Historique récent:\n"
         f"{recent}\n\n"
-        "Dernier message utilisateur:\n"
+        "Dernier message de USER auquel ME doit répondre:\n"
         f"{user_message}\n\n"
-        'Réponds uniquement avec {"messages":["..."]}.'
+        'Continue comme ME. Réponds uniquement avec {"messages":["..."]}.'
+    )
+
+
+def _format_example_turn(context: list[str]) -> str:
+    recent = "\n".join(context[-12:]) if context else "(aucun contexte)"
+    return (
+        "Exemple de conversation Discord:\n"
+        f"{recent}\n\n"
+        'Continue comme ME. Réponds uniquement avec {"messages":["..."]}.'
     )
 
 
