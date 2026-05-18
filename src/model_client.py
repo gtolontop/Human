@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -81,6 +82,8 @@ class OpenAICompatibleClient:
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
             raise ModelClientError(f"Model endpoint HTTP {exc.code}: {_short_error(body)}") from exc
+        except (TimeoutError, socket.timeout) as exc:
+            raise ModelClientError(f"Model endpoint timed out after {self.config.timeout_seconds}s") from exc
         except urllib.error.URLError as exc:
             raise ModelClientError(f"Cannot reach model endpoint: {exc.reason}") from exc
 

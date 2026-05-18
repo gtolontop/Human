@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--force-reply", action="store_true")
     parser.add_argument("--temperature", type=float, default=0.7)
     parser.add_argument("--top-p", type=float, default=0.9)
-    parser.add_argument("--max-tokens", type=int, default=512)
+    parser.add_argument("--max-tokens", type=int, default=160)
     parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument("--think", action="store_true", help="Allow invisible reasoning in prompt wording.")
     parser.add_argument("--no-think", action="store_true", help="Ask the model for no visible reasoning.")
