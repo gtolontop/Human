@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from datetime import datetime
 
 from src.anonymizer import anonymize_rows
+from src.activity_engine import build_activity_context, load_background, select_activity
 from src.cleaned_conversations import CleanedConversationConfig, build_cleaned_conversations
 from src.conversation_features import (
     build_conversation_hints,
@@ -132,13 +134,34 @@ def test_cli_mock_prints_discord_lines() -> None:
     assert cli_main(["--mock", "--style-profile", "missing.json", "--fewshots", "missing.json", "tu peux check ?"]) == 0
 
 
+def test_activity_engine_uses_schedule_and_roast_hint() -> None:
+    background = load_background(None)
+    now = datetime.fromisoformat("2026-05-18T10:30:00+02:00")
+    selected = select_activity(background, now=now)
+    context = build_activity_context(
+        background,
+        user_message="bruh bro n'as pas de vie",
+        history=[],
+        intent="chat",
+        now=now,
+    )
+
+    assert selected.activity_id == "course"
+    assert "current_activity=en cours" in context
+    assert "reaction_hint=" in context
+
+
 def test_cli_rejects_bad_short_intent_answers() -> None:
     assert _response_issue(["salut", "tu vas ?"], "cv?", "status_question") == "status_question_no_answer"
+    assert _response_issue(["sur un projet la"], "cv?", "status_question") == "status_question_no_answer"
     assert _response_issue(["mdrr", "rien", "bref"], "tfq", "activity_question") == "activity_question_filler"
     assert _response_issue(["z2m"], "tfq", "activity_question") == "weird_alnum_token"
     assert _response_issue(["tst"], "tu viens ou pas", "invite_request") == "weird_short_token"
     assert _response_issue(["ok", "vsq"], "viens vocal apres ?", "invite_request") == "weird_short_token"
     assert _response_issue(["."], "tu peux check ça apres ?", "later_help_request") == "punctuation_only"
+    assert _response_issue(["its true"], "bro n'as pas de vie", "no_life_roast") == "no_life_roast_bad"
+    assert _response_issue(["code est ma vie"], "bro n'as pas de vie", "no_life_roast") == "no_life_roast_bad"
+    assert _response_issue(["jai rien dit", "c'est toi qui decide"], "tu viens ou pas", "invite_request") == "invite_request_evasive"
     assert _response_issue(["nothing rn", "u ?"], "what u doing rn", "activity_question") is None
     assert _response_issue(["rien la", "et toi"], "tfq", "activity_question") is None
     assert _history_repeat_issue(["mdrr", "ok"], ["USER: nan mais laisse", "ME: mdrr", "ME: ok"]) == "repeat_previous_answer"
@@ -153,6 +176,7 @@ def test_conversation_features_understand_short_slang() -> None:
     assert detect_intent("tfq ?", detected) == "activity_question"
     assert detect_intent("what u doing rn") == "activity_question"
     assert detect_intent("att") == "wait_ack"
+    assert detect_intent("bruh bro n'as pas de vie") == "no_life_roast"
     assert detect_intent("cdq ce truc", {"cdq": "c'est quoi"}) == "definition_question"
     assert detect_intent("yo ma boy") == "greeting"
     assert detect_intent("tu peux m'aider ?") == "help_request"

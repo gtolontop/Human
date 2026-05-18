@@ -63,6 +63,7 @@ def build_chat_messages(
     thinking: bool,
     social_context: str | None = None,
     conversation_hints: str | None = None,
+    activity_context: str | None = None,
 ) -> list[dict[str, str]]:
     messages = [
         {
@@ -72,6 +73,7 @@ def build_chat_messages(
                 thinking=thinking,
                 social_context=social_context,
                 conversation_hints=conversation_hints,
+                activity_context=activity_context,
             ),
         }
     ]
@@ -88,6 +90,7 @@ def _system_prompt(
     thinking: bool,
     social_context: str | None = None,
     conversation_hints: str | None = None,
+    activity_context: str | None = None,
 ) -> str:
     compact_profile = json.dumps(style_profile or {}, ensure_ascii=False, separators=(",", ":"))
     thinking_line = (
@@ -97,7 +100,8 @@ def _system_prompt(
     )
     social = f"\nEtat social/emotionnel local:\n{social_context}" if social_context else ""
     hints = f"\nSignaux du dernier message:\n{conversation_hints}" if conversation_hints else ""
-    return f"{SYSTEM_PROMPT}\nProfil de style agrégé anonymisé:\n{compact_profile}{social}{hints}\n{thinking_line}"
+    activity = f"\nBackground et activité locale:\n{activity_context}" if activity_context else ""
+    return f"{SYSTEM_PROMPT}\nProfil de style agrégé anonymisé:\n{compact_profile}{social}{hints}{activity}\n{thinking_line}"
 
 
 def _format_user_turn(context: list[str], user_message: str) -> str:

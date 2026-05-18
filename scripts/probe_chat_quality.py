@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
 
 from src.cli import (
     DEFAULT_ABBREVIATIONS,
+    DEFAULT_BACKGROUND,
     DEFAULT_EXAMPLE_BANK,
     DEFAULT_FEWSHOTS,
     DEFAULT_SOCIAL_STATE,
@@ -21,6 +22,7 @@ from src.cli import (
     _normalize_for_compare,
     _response_issue,
 )
+from src.activity_engine import load_background
 from src.conversation_features import detect_abbreviations, detect_intent, detect_language, load_abbreviations
 from src.data_io import read_json
 from src.example_selector import load_example_bank
@@ -75,6 +77,11 @@ SCENARIOS: list[dict[str, Any]] = [
             },
             "raoe lourd",
             "tkt laisse",
+            {
+                "text": "bruhhh bro n'as pas de vie",
+                "expect_any": ["mdr", "mdrr", "abuse", "tais", "vie", "tqt", "pc"],
+                "forbid_any": ["its true", "c'est vrai", "cest vrai", "je vis dans ma vie"],
+            },
         ],
     },
     {
@@ -170,6 +177,7 @@ def main() -> int:
     )
     style_profile = _read_optional_json(DEFAULT_STYLE_PROFILE)
     abbreviations = load_abbreviations(DEFAULT_ABBREVIATIONS)
+    background = load_background(DEFAULT_BACKGROUND)
     static_fewshots = load_fewshot_examples(DEFAULT_FEWSHOTS, limit=6)
     example_bank = load_example_bank(DEFAULT_EXAMPLE_BANK)
 
@@ -191,6 +199,7 @@ def main() -> int:
                     static_fewshots,
                     example_bank,
                     abbreviations,
+                    background,
                     False,
                     None,
                 )

@@ -6,6 +6,7 @@ import re
 import sys
 from pathlib import Path
 
+from .activity_engine import build_activity_context, load_background
 from .conversation_features import build_conversation_hints, detect_abbreviations, detect_intent, detect_language, load_abbreviations
 from .data_io import read_json
 from .example_selector import load_example_bank, select_relevant_examples
@@ -28,6 +29,7 @@ DEFAULT_FEWSHOTS = Path("data/processed/fewshot_examples.json")
 DEFAULT_EXAMPLE_BANK = Path("data/processed/conversations.cleaned.jsonl")
 DEFAULT_SOCIAL_STATE = Path("state/social_state.json")
 DEFAULT_ABBREVIATIONS = Path("config/abbreviations.json")
+DEFAULT_BACKGROUND = Path("config/background.json")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -41,6 +43,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fewshot-limit", type=int, default=6)
     parser.add_argument("--example-bank", type=Path, default=DEFAULT_EXAMPLE_BANK)
     parser.add_argument("--abbreviations", type=Path, default=DEFAULT_ABBREVIATIONS)
+    parser.add_argument("--background", type=Path, default=DEFAULT_BACKGROUND)
+    parser.add_argument("--no-background", action="store_true")
     parser.add_argument("--no-dynamic-fewshots", action="store_true")
     parser.add_argument("--context", action="append", default=[], help="Recent history line, repeatable.")
     parser.add_argument("--history", type=Path, help="Optional text or JSONL history file.")
@@ -68,6 +72,7 @@ def main(argv: list[str] | None = None) -> int:
 
     style_profile = _read_optional_json(args.style_profile)
     abbreviations = load_abbreviations(args.abbreviations)
+    background = None if args.no_background else load_background(args.background)
     static_fewshots = load_fewshot_examples(args.fewshots, limit=args.fewshot_limit)
     example_bank = [] if args.no_dynamic_fewshots else load_example_bank(args.example_bank)
     history = [*load_history(args.history), *args.context]
@@ -93,6 +98,7 @@ def main(argv: list[str] | None = None) -> int:
             static_fewshots=static_fewshots,
             example_bank=example_bank,
             abbreviations=abbreviations,
+            background=background,
             history=history,
             thinking=thinking,
             social_state=social_state,
@@ -112,6 +118,7 @@ def main(argv: list[str] | None = None) -> int:
             static_fewshots,
             example_bank,
             abbreviations,
+            background,
             thinking,
             social_state,
         )
@@ -143,6 +150,7 @@ def _chat_loop(
     static_fewshots: list[dict],
     example_bank: list[dict],
     abbreviations: dict[str, str],
+    background: dict | None,
     history: list[str],
     thinking: bool,
     social_state,
@@ -174,6 +182,7 @@ def _chat_loop(
                 static_fewshots,
                 example_bank,
                 abbreviations,
+                background,
                 thinking,
                 social_state,
             )
@@ -201,6 +210,7 @@ def _generate_raw(
     static_fewshots: list[dict],
     example_bank: list[dict],
     abbreviations: dict[str, str],
+    background: dict | None,
     thinking: bool,
     social_state,
 ) -> str:
@@ -246,6 +256,11 @@ def _generate_raw(
     detected_intent = detect_intent(user_message, detected_abbreviations)
     detected_language = detect_language("\n".join([*history[-6:], user_message]))
     conversation_hints = build_conversation_hints(user_message, history, abbreviations)
+    activity_context = (
+        build_activity_context(background, user_message=user_message, history=history, intent=detected_intent)
+        if background
+        else None
+    )
     dynamic = select_relevant_examples(
         example_bank,
         user_message=user_message,
@@ -255,7 +270,7 @@ def _generate_raw(
         limit=args.fewshot_limit,
     )
     fewshots = dynamic or static_fewshots[: args.fewshot_limit]
-    raw = _call_model(args, client, user_message, history, style_profile, fewshots, thinking, social_context, conversation_hints)
+    raw = _call_model(args, client, user_message, history, style_profile, fewshots, thinking, social_context, conversation_hints, activity_context)
     messages, _strict = parse_strict_messages(raw)
     issue = _response_issue(messages, user_message, detected_intent) or _history_repeat_issue(messages, history)
     if issue:
@@ -267,7 +282,7 @@ def _generate_raw(
                 "Pas de salutation si USER demande si ça va. Pas de filler gratuit."
             ),
         ]
-        raw = _call_model(args, client, user_message, retry_history, style_profile, fewshots[:3], thinking, social_context, conversation_hints)
+        raw = _call_model(args, client, user_message, retry_history, style_profile, fewshots[:3], thinking, social_context, conversation_hints, activity_context)
         messages, _strict = parse_strict_messages(raw)
         if _response_issue(messages, user_message, detected_intent) or _history_repeat_issue(messages, history):
             raw = _fallback_response(detected_intent, detected_language)
@@ -295,6 +310,7 @@ def _call_model(
     thinking: bool,
     social_context: str | None,
     conversation_hints: str | None,
+    activity_context: str | None,
 ) -> str:
     prompt_messages = build_chat_messages(
         user_message=user_message,
@@ -304,6 +320,7 @@ def _call_model(
         thinking=thinking,
         social_context=social_context,
         conversation_hints=conversation_hints,
+        activity_context=activity_context,
     )
     return client.chat(
         prompt_messages,
@@ -359,8 +376,12 @@ def _response_issue(messages: list[str], user_message: str, intent: str) -> str 
         return "activity_question_filler"
     if intent == "reason_question" and _bad_reason_answer(joined):
         return "reason_question_no_cause"
+    if intent == "no_life_roast" and _bad_no_life_answer(joined):
+        return "no_life_roast_bad"
     if intent == "advice_request" and _bad_advice_answer(joined):
         return "advice_request_offtopic"
+    if intent == "invite_request" and _bad_invite_answer(joined):
+        return "invite_request_evasive"
     if intent == "wait_ack" and any(greeting in joined.split() for greeting in {"salut", "yo", "hey", "sup"}):
         return "wait_ack_greeting"
     if intent == "help_request" and "apres" in lowered_user and not any(word in joined for word in {"apres", "après", "later", "ok", "oui", "ouais", "oe"}):
@@ -410,6 +431,8 @@ def _bad_status_answer(joined: str) -> bool:
         return False
     if any(greeting in joined for greeting in ("salut", "yo", "hey", "cc", "coucou")):
         return True
+    if any(activity in joined for activity in {"sur un projet", "je code", "cours la", "sur le pc"}):
+        return True
     return joined.endswith("?")
 
 
@@ -448,10 +471,24 @@ def _bad_reason_answer(joined: str) -> bool:
 def _bad_advice_answer(joined: str) -> bool:
     if joined.endswith("?"):
         return True
-    if any(word in joined for word in {"sport", "foot", "mange", "dodo", "dormi 3h", "pas de vie", "sur pc", "fais rien", "merde"}):
+    if any(word in joined for word in {"sport", "foot", "mange", "dodo", "dormi 3h", "pas de vie", "sur pc", "fais rien", "merde", "pauvre toi"}):
         return True
     if any(word in joined for word in {"dis", "genre", "reponds", "réponds", "jsp", "peux", "met"}):
         return False
+    return False
+
+
+def _bad_no_life_answer(joined: str) -> bool:
+    if any(bad in joined for bad in {"c'est vrai", "cest vrai", "its true", "je vis dans ma vie", "dans ma vie", "code est ma vie"}):
+        return True
+    if any(ok in joined for ok in {"mdr", "abuse", "tais toi", "tqt", "vie", "pc"}):
+        return False
+    return joined.endswith("?")
+
+
+def _bad_invite_answer(joined: str) -> bool:
+    if any(bad in joined for bad in {"toi qui decide", "toi qui décide", "jai rien dit", "j'ai rien dit"}):
+        return True
     return False
 
 
@@ -480,6 +517,8 @@ def _fallback_response(intent: str, language: str) -> str:
         return messages_json(["okok"])
     if intent == "advice_request":
         return messages_json(["dis le simple", "sans pavé"])
+    if intent == "no_life_roast":
+        return messages_json(["mdrr abuse pas", "j'ai une vie tqt"])
     return messages_json(["jsp", "att"])
 
 

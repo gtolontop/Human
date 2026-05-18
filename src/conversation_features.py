@@ -126,6 +126,8 @@ def build_conversation_hints(user_message: str, history: list[str], abbreviation
         hints.append("reply_rule=Salutation courte, pas de long bloc.")
     elif intent == "wait_ack":
         hints.append("reply_rule=Accuser reception tres court, pas relancer par une salutation.")
+    elif intent == "no_life_roast":
+        hints.append("reply_rule=Repondre comme a une pique, avec une repartie courte; ne pas confirmer serieusement.")
     elif intent == "help_request":
         hints.append("reply_rule=Accepter d'aider ou demander le detail si besoin, sans long pave.")
     elif intent == "later_help_request":
@@ -175,6 +177,8 @@ def detect_intent(text: str, detected_abbreviations: dict[str, str] | None = Non
         return "greeting"
     if compact in {"att", "attends", "attend", "2 sec", "sec"}:
         return "wait_ack"
+    if any(term in compact for term in ("pas de vie", "no life", "nolife", "nas pas de vie", "n'as pas de vie")):
+        return "no_life_roast"
     if compact in {"ca va", "ça va", "cv", "sa va"} or compact.startswith(("ca va", "ça va")):
         return "status_question"
     if compact in {"how are you", "how r u", "hru"} or compact.startswith(("how are you", "how r u")):

@@ -61,6 +61,8 @@ Le CLI selectionne automatiquement des exemples proches dans
 toujours les memes fewshots et limite les reponses generiques.
 Il ajoute aussi des signaux locaux au prompt: langue detectee (`fr`, `en`, `mixed`),
 intention courte (`tfq`, `pq`, salutation, question), abreviations connues, et regles anti-echo.
+Il injecte enfin un background local: planning, activite actuelle probable, disponibilite et reactions
+aux taunts comme "pas de vie". Le fichier prive est `config/background.json`, ignore par Git.
 Pour desactiver ce comportement:
 
 ```powershell
@@ -115,6 +117,7 @@ La memoire reste locale dans `state/`, ignoree par Git.
 - `scripts\eval-qwen.cmd` : evaluation locale avec Qwen.
 - `scripts\open-reports.cmd` : ouvre les rapports locaux.
 - `scripts\probe-chat.cmd` : lance des conversations synthetiques et produit `reports/chat_probe.*`.
+- `scripts\activity-now.cmd` : affiche le background/activite locale injectee au prompt.
 
 Commande directe sans launcher:
 
@@ -180,6 +183,21 @@ sans les publier, cree `config/abbreviations.json`; ce fichier est ignore par Gi
   }
 }
 ```
+
+## Background et activites
+
+Le fichier suivi `config/background.example.json` sert de modele. Pour rendre le clone plus coherent,
+cree `config/background.json` et mets-y ton vrai planning local, tes activites plausibles, tes reactions
+aux piques, et ce qu'il ne doit jamais inventer. Ce fichier est ignore par Git.
+
+Voir l'activite actuelle injectee au prompt:
+
+```cmd
+scripts\activity-now.cmd tfq
+```
+
+Le CLI s'en sert pour eviter les reponses creuses du type `je vis dans ma vie`: quand on demande `tfq`,
+il pioche dans l'activite actuelle; quand on le taunt, il utilise une reaction courte.
 
 4. Dataset:
 
