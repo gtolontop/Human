@@ -25,10 +25,22 @@ python -m pip install -e .
 
 ## Parler a l'assistant
 
+Le plus simple:
+
+```cmd
+scripts\human-menu.cmd
+```
+
+Ou direct avec le chat complet:
+
+```cmd
+scripts\chat-full.cmd
+```
+
 Mode offline immediat, sans modele:
 
 ```cmd
-scripts\chat.cmd --mock
+scripts\chat-mock.cmd
 ```
 
 Mode modele local Qwen3.6 quantifie via `C:\Users\teamr\Desktop\ai\llama\llama-server.exe`:
@@ -83,6 +95,22 @@ python scripts/simulate_social.py --reset
 ```
 
 La memoire reste locale dans `state/`, ignoree par Git.
+
+## Scripts Windows utiles
+
+- `scripts\human-menu.cmd` : menu complet.
+- `scripts\chat-full.cmd` : lance Qwen3.6 quantifie puis ouvre le chat social complet.
+- `scripts\chat.cmd` : alias court du chat Qwen3.6.
+- `scripts\chat-mock.cmd` : chat offline sans modele.
+- `scripts\server-start-fast.cmd` : Qwen3.6 `IQ2_XXS`, plus rapide.
+- `scripts\server-start-quality.cmd` : Qwen3.6 `IQ2_M`, un peu plus qualitatif.
+- `scripts\server-status.cmd` : process, API, GPU.
+- `scripts\server-stop.cmd` : stoppe `llama-server.exe`.
+- `scripts\pipeline-rebuild-all.cmd` : regenere ingestion/anonymisation/datasets/fewshots/eval.
+- `scripts\social-sim.cmd` : simulation multi-personnes.
+- `scripts\eval-mock.cmd` : evaluation locale mock.
+- `scripts\eval-qwen.cmd` : evaluation locale avec Qwen.
+- `scripts\open-reports.cmd` : ouvre les rapports locaux.
 
 Commande directe sans launcher:
 
