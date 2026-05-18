@@ -174,8 +174,6 @@ def _generate_raw(
     thinking: bool,
     social_state,
 ) -> str:
-    if args.mock:
-        return _mock_response(user_message)
     social_context = None
     analysis = decision = person = None
     if social_state is not None:
@@ -201,6 +199,19 @@ def _generate_raw(
             )
             return messages_json([])
         social_context = social_prompt_block(analysis, decision, person, social_state)
+    if args.mock:
+        if social_state is not None and analysis is not None:
+            update_social_state(
+                social_state,
+                user_id=args.user_id,
+                display_name=args.display_name,
+                conversation_id=args.conversation_id,
+                text=user_message,
+                analysis=analysis,
+                replied=True,
+            )
+            save_social_state(args.social_state, social_state)
+        return _mock_response(user_message)
     dynamic = select_relevant_examples(
         example_bank,
         user_message=user_message,
