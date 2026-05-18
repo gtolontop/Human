@@ -43,6 +43,15 @@ Dans le chat:
 - `/reset` vide l'historique de la session;
 - `/exit` quitte.
 
+Le CLI selectionne automatiquement des exemples proches dans
+`data/processed/conversations.cleaned.jsonl` a chaque message. Ca evite d'envoyer
+toujours les memes fewshots et limite les reponses generiques.
+Pour desactiver ce comportement:
+
+```powershell
+python -m src.cli --chat --no-dynamic-fewshots --base-url http://127.0.0.1:8080/v1 --api-key yourbot-local --model qwen3.6-27b --no-response-format
+```
+
 Commande directe sans launcher:
 
 ```powershell
