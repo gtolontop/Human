@@ -12,6 +12,7 @@ from src.message_splitter import parse_model_messages
 from src.output_parser import parse_strict_messages
 from src.prompt_builder import load_fewshot_examples
 from src.style_eval import build_blind_review, evaluate_predictions, parse_eval_rows
+from src.social_engine import PersonMemory, SocialState, analyze_message, decide_reply, social_prompt_block, update_social_state
 from src.style_profile import build_style_profile
 
 
@@ -141,3 +142,43 @@ def test_style_eval_aggregates_and_blind_review() -> None:
     assert blind[0]["review_id"]
     assert blind[0]["human_choice"] is None
     assert "answer_key" in blind[0]
+
+
+def test_social_engine_observes_server_messages_and_replies_to_dm() -> None:
+    state = SocialState()
+    server_analysis = analyze_message(
+        "vous avez vu ça mdr",
+        bot_names=["human"],
+        is_dm=False,
+        mentioned=False,
+        user_id="alice",
+        state=state,
+    )
+    person = PersonMemory(user_id="alice", display_name="Alice")
+    server_decision = decide_reply(server_analysis, state, person)
+
+    dm_analysis = analyze_message(
+        "salut ça va ?",
+        bot_names=["human"],
+        is_dm=True,
+        mentioned=False,
+        user_id="alice",
+        state=state,
+    )
+    dm_decision = decide_reply(dm_analysis, state, person)
+    update_social_state(
+        state,
+        user_id="alice",
+        display_name="Alice",
+        conversation_id="dm_alice",
+        text="salut ça va ?",
+        analysis=dm_analysis,
+        replied=True,
+    )
+
+    assert server_analysis.addressing_bot is False
+    assert server_decision.should_reply is False
+    assert dm_analysis.addressing_bot is True
+    assert dm_decision.should_reply is True
+    assert state.people["alice"].messages_seen == 1
+    assert "decision" in social_prompt_block(dm_analysis, dm_decision, state.people["alice"], state)
