@@ -23,6 +23,21 @@ class OpenAICompatibleConfig:
             model=os.getenv("OPENAI_MODEL", "qwen3.6-27b"),
         )
 
+    def with_overrides(
+        self,
+        *,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        model: str | None = None,
+        timeout_seconds: int | None = None,
+    ) -> "OpenAICompatibleConfig":
+        return OpenAICompatibleConfig(
+            base_url=(base_url or self.base_url).rstrip("/"),
+            api_key=api_key or self.api_key,
+            model=model or self.model,
+            timeout_seconds=timeout_seconds or self.timeout_seconds,
+        )
+
 
 class ModelClientError(RuntimeError):
     pass
@@ -32,14 +47,24 @@ class OpenAICompatibleClient:
     def __init__(self, config: OpenAICompatibleConfig):
         self.config = config
 
-    def chat(self, messages: list[dict[str, str]], *, temperature: float = 0.7, max_tokens: int = 512) -> str:
+    def chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float = 0.7,
+        top_p: float = 0.9,
+        max_tokens: int = 512,
+        response_format: bool = True,
+    ) -> str:
         payload = {
             "model": self.config.model,
             "messages": messages,
             "temperature": temperature,
+            "top_p": top_p,
             "max_tokens": max_tokens,
-            "response_format": {"type": "json_object"},
         }
+        if response_format:
+            payload["response_format"] = {"type": "json_object"}
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(
             f"{self.config.base_url}/chat/completions",
@@ -76,4 +101,3 @@ def _short_error(text: str, limit: int = 240) -> str:
     if len(compact) <= limit:
         return compact
     return compact[:limit].rstrip() + "..."
-
