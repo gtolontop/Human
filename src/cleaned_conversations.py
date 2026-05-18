@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+import re
 from typing import Any
 
 from .anonymizer import ADDRESS_RE, DISCORD_ID_RE, EMAIL_RE, INVITE_RE, MENTION_RE, PHONE_RE, URL_RE
@@ -174,7 +175,7 @@ def _parse_timestamp(value: object) -> datetime | None:
 
 
 def _replace_name(text: str, name: str, replacement: str) -> str:
-    return text.replace(name, replacement)
+    return re.sub(re.escape(name), replacement, text, flags=re.IGNORECASE)
 
 
 def _letters(index: int) -> str:
