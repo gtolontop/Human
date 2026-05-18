@@ -99,17 +99,71 @@ python scripts/build_style_profile.py `
   --output data/processed/style_profile.json
 ```
 
-6. CLI avec un endpoint OpenAI-compatible:
+6. Fewshots locaux pour le CLI:
 
 ```powershell
-python -m src.cli --style-profile data/processed/style_profile.json "il a dit quoi du coup ?"
+python scripts/build_fewshot_examples.py `
+  --input data/processed/conversations.cleaned.jsonl `
+  --output data/processed/fewshot_examples.json `
+  --limit 12
+```
+
+7. CLI avec un endpoint OpenAI-compatible:
+
+```powershell
+python -m src.cli `
+  --base-url http://localhost:8000/v1 `
+  --model Qwen/Qwen3.6-27B `
+  --style-profile data/processed/style_profile.json `
+  --fewshots data/processed/fewshot_examples.json `
+  "il a dit quoi du coup ?"
 ```
 
 ou apres installation editable:
 
 ```powershell
-human-style --style-profile data/processed/style_profile.json "tu peux repondre a ca ?"
+human-style --base-url http://localhost:8000/v1 --model Qwen/Qwen3.6-27B "tu peux repondre a ca ?"
 ```
+
+Par defaut, le CLI affiche les messages un par un, comme Discord. Pour recuperer le JSON strict:
+
+```powershell
+python -m src.cli --mock --json "tu peux check ?"
+```
+
+Options utiles:
+
+- `--temperature 0.7`
+- `--top-p 0.9`
+- `--max-tokens 512`
+- `--no-think` pour insister sur aucune trace de raisonnement visible;
+- `--think` si tu veux autoriser un raisonnement interne, sans changer la sortie visible;
+- `--mock` pour tester offline sans modele;
+- `--history history.txt` ou plusieurs `--context "PERSON_A: ..."` pour passer un historique recent.
+
+Exemple vLLM:
+
+```powershell
+python -m vllm.entrypoints.openai.api_server `
+  --model Qwen/Qwen3.6-27B `
+  --host 127.0.0.1 `
+  --port 8000
+
+python -m src.cli --base-url http://127.0.0.1:8000/v1 --model Qwen/Qwen3.6-27B "tu rep quoi ?"
+```
+
+Exemple SGLang:
+
+```powershell
+python -m sglang.launch_server `
+  --model-path Qwen/Qwen3.6-27B `
+  --host 127.0.0.1 `
+  --port 8000
+
+python -m src.cli --base-url http://127.0.0.1:8000/v1 --model Qwen/Qwen3.6-27B "il veut quoi lui ?"
+```
+
+Le CLI ne loggue pas les prompts, les fewshots, ni le dataset. Les erreurs endpoint sont tronquees.
 
 ## Evaluation
 
