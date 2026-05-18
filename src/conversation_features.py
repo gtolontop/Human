@@ -118,10 +118,24 @@ def build_conversation_hints(user_message: str, history: list[str], abbreviation
         hints.append("reply_rule=Dire ce que ME fait ou un etat actuel plausible, pas repeter la question.")
     elif intent == "reason_question":
         hints.append("reply_rule=Donner une cause courte si possible; si contexte insuffisant, le dire naturellement.")
+    elif intent == "definition_question":
+        hints.append("reply_rule=Expliquer ce que c'est si le contexte suffit; sinon demander 'c quoi ca' tres court.")
     elif intent == "status_question":
         hints.append("reply_rule=Repondre comme humain a 'ca va', puis petite relance si naturel.")
     elif intent == "greeting":
         hints.append("reply_rule=Salutation courte, pas de long bloc.")
+    elif intent == "wait_ack":
+        hints.append("reply_rule=Accuser reception tres court, pas relancer par une salutation.")
+    elif intent == "help_request":
+        hints.append("reply_rule=Accepter d'aider ou demander le detail si besoin, sans long pave.")
+    elif intent == "later_help_request":
+        hints.append("reply_rule=Confirmer que ME checkera plus tard, tres court.")
+    elif intent == "advice_request":
+        hints.append("reply_rule=Proposer une formulation courte ou une idee de reponse, pas parler d'un sujet random.")
+    elif intent == "invite_request":
+        hints.append("reply_rule=Repondre oui/non/plus tard clairement, pas esquiver.")
+    elif intent == "emotion_check":
+        hints.append("reply_rule=Repondre a l'etat emotionnel simplement, pas attaquer USER.")
     elif language == "en":
         hints.append("reply_rule=Repondre en anglais naturel si USER parle anglais.")
     elif language == "mixed":
@@ -159,12 +173,30 @@ def detect_intent(text: str, detected_abbreviations: dict[str, str] | None = Non
         "wsh",
     }:
         return "greeting"
+    if compact in {"att", "attends", "attend", "2 sec", "sec"}:
+        return "wait_ack"
     if compact in {"ca va", "ça va", "cv", "sa va"} or compact.startswith(("ca va", "ça va")):
         return "status_question"
+    if compact in {"how are you", "how r u", "hru"} or compact.startswith(("how are you", "how r u")):
+        return "status_question"
+    if "cdq" in detected_abbreviations or "c quoi" in detected_abbreviations or compact.startswith(("c quoi", "c'est quoi", "cest quoi")):
+        return "definition_question"
     if "tfq" in detected_abbreviations or compact in {"tu fais quoi", "tfq", "tu fait quoi"}:
+        return "activity_question"
+    if compact.startswith(("what u doing", "what are you doing", "wyd")):
         return "activity_question"
     if "pq" in detected_abbreviations or "pk" in detected_abbreviations or compact.startswith(("pq", "pk", "pourquoi", "why")):
         return "reason_question"
+    if any(word in compact for word in {"repondrais", "répondrais", "dire quoi", "formuler"}):
+        return "advice_request"
+    if ("apres" in words or "après" in words or "later" in words) and any(word in words for word in {"check", "aide", "aider", "help"}):
+        return "later_help_request"
+    if any(word in words for word in {"aide", "aider", "help", "check"}) or "aider" in compact or "help" in compact:
+        return "help_request"
+    if any(word in words for word in {"vocal", "call", "viens", "join", "go"}):
+        return "invite_request"
+    if any(word in words for word in {"fache", "enerve", "triste", "mad", "sad"}):
+        return "emotion_check"
     if "?" in text or compact.startswith(QUESTION_PREFIXES):
         return "question"
     if any(word in compact.split() for word in ("mdr", "ptdr", "lol", "haha")):

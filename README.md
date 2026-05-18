@@ -114,6 +114,7 @@ La memoire reste locale dans `state/`, ignoree par Git.
 - `scripts\eval-mock.cmd` : evaluation locale mock.
 - `scripts\eval-qwen.cmd` : evaluation locale avec Qwen.
 - `scripts\open-reports.cmd` : ouvre les rapports locaux.
+- `scripts\probe-chat.cmd` : lance des conversations synthetiques et produit `reports/chat_probe.*`.
 
 Commande directe sans launcher:
 

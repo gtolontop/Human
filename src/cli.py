@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--server-channel", action="store_true", help="Treat input as a server channel, not a DM.")
     parser.add_argument("--mentioned", action="store_true", help="Mark the bot as explicitly mentioned.")
     parser.add_argument("--force-reply", action="store_true")
-    parser.add_argument("--temperature", type=float, default=0.7)
+    parser.add_argument("--temperature", type=float, default=0.55)
     parser.add_argument("--top-p", type=float, default=0.9)
     parser.add_argument("--max-tokens", type=int, default=160)
     parser.add_argument("--timeout", type=int, default=120)
@@ -257,7 +257,7 @@ def _generate_raw(
     fewshots = dynamic or static_fewshots[: args.fewshot_limit]
     raw = _call_model(args, client, user_message, history, style_profile, fewshots, thinking, social_context, conversation_hints)
     messages, _strict = parse_strict_messages(raw)
-    issue = _response_issue(messages, user_message, detected_intent)
+    issue = _response_issue(messages, user_message, detected_intent) or _history_repeat_issue(messages, history)
     if issue:
         retry_history = [
             *history,
@@ -269,7 +269,7 @@ def _generate_raw(
         ]
         raw = _call_model(args, client, user_message, retry_history, style_profile, fewshots[:3], thinking, social_context, conversation_hints)
         messages, _strict = parse_strict_messages(raw)
-        if _response_issue(messages, user_message, detected_intent):
+        if _response_issue(messages, user_message, detected_intent) or _history_repeat_issue(messages, history):
             raw = _fallback_response(detected_intent, detected_language)
     if social_state is not None and analysis is not None:
         update_social_state(
@@ -319,13 +319,29 @@ def _response_issue(messages: list[str], user_message: str, intent: str) -> str 
         return "empty"
     lowered_user = _normalize_for_compare(user_message)
     lowered = [_normalize_for_compare(message) for message in messages]
+    joined = " ".join(lowered)
+    if any(not message for message in lowered):
+        return "punctuation_only"
+    if any(len(message) <= 1 and message.isalpha() and message not in {"u"} for message in lowered):
+        return "too_short_glyph"
+    if any(re.fullmatch(r"(?=.*[a-z])(?=.*\d)[a-z0-9]{2,5}", message) for message in lowered):
+        return "weird_alnum_token"
+    if any(message in {"tst", "vsq"} for message in lowered):
+        return "weird_short_token"
+    if any(word in joined for word in {"robot", "humain", "ia", "ai assistant"}):
+        return "meta_identity"
+    if "premier jour" in joined:
+        return "random_context"
+    if intent == "greeting" and len(lowered) == 1 and lowered[0] in {"salut", "yo", "hey", "cc", "coucou", "sup", "wsh"}:
+        return None
     if lowered_user and any(message == lowered_user for message in lowered):
         return "echo"
-    if lowered_user and any(_token_overlap_ratio(message, lowered_user) >= 0.82 for message in lowered):
+    if lowered_user and any(
+        _token_overlap_ratio(message, lowered_user) >= 0.82 for message in lowered if message not in {"u", "you", "toi", "et toi"}
+    ):
         return "near_echo"
     if len(set(lowered)) < len(lowered):
         return "duplicate"
-    joined = " ".join(lowered)
     bad_short = {"cest la vie", "tfq", "...", "non", "pourquoi", "pq", "pk", "la vie"}
     if joined in bad_short and lowered_user not in {"ca va", "ça va", "cv"}:
         return "generic_short"
@@ -335,15 +351,42 @@ def _response_issue(messages: list[str], user_message: str, intent: str) -> str 
         return "activity_echo"
     if "?" in user_message and joined in {"ok", "okok", "ouais", "oe", "non"}:
         return "question_generic"
+    if intent == "greeting" and joined in {"jsp att", "jsp", "att", "ok quoi"}:
+        return "greeting_generic"
     if intent == "status_question" and _bad_status_answer(joined):
         return "status_question_no_answer"
     if intent == "activity_question" and _bad_activity_answer(joined, len(messages)):
         return "activity_question_filler"
+    if intent == "reason_question" and _bad_reason_answer(joined):
+        return "reason_question_no_cause"
+    if intent == "advice_request" and _bad_advice_answer(joined):
+        return "advice_request_offtopic"
+    if intent == "wait_ack" and any(greeting in joined.split() for greeting in {"salut", "yo", "hey", "sup"}):
+        return "wait_ack_greeting"
+    if intent == "help_request" and "apres" in lowered_user and not any(word in joined for word in {"apres", "après", "later", "ok", "oui", "ouais", "oe"}):
+        return "help_later_no_time"
     return None
 
 
 def _bad_messages(messages: list[str], user_message: str) -> bool:
     return _response_issue(messages, user_message, detect_intent(user_message)) is not None
+
+
+def _history_repeat_issue(messages: list[str], history: list[str]) -> str | None:
+    previous = _last_assistant_messages(history)
+    if previous and _normalize_for_compare(" ".join(previous)) == _normalize_for_compare(" ".join(messages)):
+        return "repeat_previous_answer"
+    return None
+
+
+def _last_assistant_messages(history: list[str]) -> list[str]:
+    messages: list[str] = []
+    for line in reversed(history):
+        if line.startswith("USER:"):
+            break
+        if line.startswith("ME:"):
+            messages.append(line[3:].strip())
+    return list(reversed(messages))
 
 
 def _bad_status_answer(joined: str) -> bool:
@@ -373,12 +416,43 @@ def _bad_status_answer(joined: str) -> bool:
 def _bad_activity_answer(joined: str, message_count: int) -> bool:
     if any(bad in joined.split() for bad in ("bref", "tfq")):
         return True
-    activity_words = {"rien", "pc", "jeu", "joue", "regarde", "check", "code", "bosse", "mange", "dodo", "chill"}
+    activity_words = {"rien", "pc", "jeu", "joue", "regarde", "check", "code", "bosse", "mange", "dodo", "chill", "cours"}
     if any(word in joined for word in activity_words):
         return False
     if message_count > 2 and any(filler in joined for filler in ("mdr", "mdrr", "ptdr")):
         return True
     return joined.endswith("?")
+
+
+def _bad_reason_answer(joined: str) -> bool:
+    if any(word in joined for word in {"parce", "jsp", "jdevais", "devais", "fatigue", "flemme", "bug", "oublie"}):
+        return False
+    if any(
+        bad in joined
+        for bad in {
+            "pour moi",
+            "c'est pas moi",
+            "cest pas moi",
+            "pose un probleme",
+            "pose un problème",
+            "j'ai rien",
+            "encore la",
+            "encore là",
+            "c quoi",
+        }
+    ):
+        return True
+    return joined.endswith("?")
+
+
+def _bad_advice_answer(joined: str) -> bool:
+    if joined.endswith("?"):
+        return True
+    if any(word in joined for word in {"sport", "foot", "mange", "dodo", "dormi 3h", "pas de vie", "sur pc", "fais rien", "merde"}):
+        return True
+    if any(word in joined for word in {"dis", "genre", "reponds", "réponds", "jsp", "peux", "met"}):
+        return False
+    return False
 
 
 def _fallback_response(intent: str, language: str) -> str:
@@ -390,6 +464,22 @@ def _fallback_response(intent: str, language: str) -> str:
         return messages_json(["rien la", "et toi"])
     if intent == "reason_question":
         return messages_json(["jsp trop", "ptet"])
+    if intent == "greeting":
+        return messages_json(["yo"])
+    if intent == "help_request":
+        return messages_json(["vasy", "montre"])
+    if intent == "later_help_request":
+        return messages_json(["ouais apres"])
+    if intent == "invite_request":
+        return messages_json(["ouais apres"])
+    if intent == "emotion_check":
+        return messages_json(["non tkt"])
+    if intent == "definition_question":
+        return messages_json(["c quoi ca"])
+    if intent == "wait_ack":
+        return messages_json(["okok"])
+    if intent == "advice_request":
+        return messages_json(["dis le simple", "sans pavé"])
     return messages_json(["jsp", "att"])
 
 

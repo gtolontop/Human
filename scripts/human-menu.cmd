@@ -19,6 +19,7 @@ echo 9. Eval mock
 echo 10. Eval Qwen
 echo 11. Open reports
 echo 12. Open DiscordChatExporter
+echo 13. Probe chat quality
 echo 0. Quit
 echo.
 set /p choice="Choice: "
@@ -34,5 +35,6 @@ if "%choice%"=="9" call scripts\eval-mock.cmd
 if "%choice%"=="10" call scripts\eval-qwen.cmd
 if "%choice%"=="11" call scripts\open-reports.cmd
 if "%choice%"=="12" call scripts\discord-exporter.cmd
+if "%choice%"=="13" call scripts\probe-chat.cmd
 if "%choice%"=="0" exit /b 0
 goto menu

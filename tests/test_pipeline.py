@@ -13,7 +13,7 @@ from src.conversation_features import (
     load_abbreviations,
     looks_like_unknown_slang,
 )
-from src.cli import _response_issue, main as cli_main
+from src.cli import _history_repeat_issue, _response_issue, main as cli_main
 from src.dataset_builder import DatasetConfig, build_training_examples
 from src.discord_export import parse_discord_chat_exporter
 from src.message_splitter import parse_model_messages
@@ -135,7 +135,13 @@ def test_cli_mock_prints_discord_lines() -> None:
 def test_cli_rejects_bad_short_intent_answers() -> None:
     assert _response_issue(["salut", "tu vas ?"], "cv?", "status_question") == "status_question_no_answer"
     assert _response_issue(["mdrr", "rien", "bref"], "tfq", "activity_question") == "activity_question_filler"
+    assert _response_issue(["z2m"], "tfq", "activity_question") == "weird_alnum_token"
+    assert _response_issue(["tst"], "tu viens ou pas", "invite_request") == "weird_short_token"
+    assert _response_issue(["ok", "vsq"], "viens vocal apres ?", "invite_request") == "weird_short_token"
+    assert _response_issue(["."], "tu peux check ça apres ?", "later_help_request") == "punctuation_only"
+    assert _response_issue(["nothing rn", "u ?"], "what u doing rn", "activity_question") is None
     assert _response_issue(["rien la", "et toi"], "tfq", "activity_question") is None
+    assert _history_repeat_issue(["mdrr", "ok"], ["USER: nan mais laisse", "ME: mdrr", "ME: ok"]) == "repeat_previous_answer"
 
 
 def test_conversation_features_understand_short_slang() -> None:
@@ -145,7 +151,16 @@ def test_conversation_features_understand_short_slang() -> None:
 
     assert detected["tfq"] == "tu fais quoi"
     assert detect_intent("tfq ?", detected) == "activity_question"
+    assert detect_intent("what u doing rn") == "activity_question"
+    assert detect_intent("att") == "wait_ack"
+    assert detect_intent("cdq ce truc", {"cdq": "c'est quoi"}) == "definition_question"
     assert detect_intent("yo ma boy") == "greeting"
+    assert detect_intent("tu peux m'aider ?") == "help_request"
+    assert detect_intent("tu peux check ça apres ?") == "later_help_request"
+    assert detect_intent("tu repondrais quoi a ça toi") == "advice_request"
+    assert detect_intent("how are you") == "status_question"
+    assert detect_intent("viens vocal apres ?") == "invite_request"
+    assert detect_intent("t faché ou quoi ?") == "emotion_check"
     assert detect_language("hey what are you doing bro") == "en"
     assert looks_like_unknown_slang("raoe lourd", abbreviations) is True
     assert "pas repeter la question" in hints
