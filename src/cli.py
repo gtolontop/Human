@@ -201,7 +201,12 @@ def _bad_messages(messages: list[str], user_message: str) -> bool:
     if len(set(lowered)) < len(lowered):
         return True
     joined = " ".join(lowered)
-    if joined in {"c'est la vie", "tfq", "...", "non"} and lowered_user not in {"ça va", "ca va"}:
+    bad_short = {"c'est la vie", "tfq", "...", "non", "pourquoi", "pq"}
+    if joined in bad_short and lowered_user not in {"ça va", "ca va"}:
+        return True
+    if lowered_user in {"pq", "pourquoi"} and joined in {"pourquoi", "pq"}:
+        return True
+    if lowered_user in {"tfq", "tu fais quoi"} and ("tfq" in lowered or "tu fais quoi" in lowered):
         return True
     return False
 
