@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from src.data_io import iter_jsonl, write_json
 from src.style_profile import build_style_profile
@@ -23,4 +28,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
