@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from statistics import mean
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from src.data_io import iter_jsonl, read_json, write_json
 from src.message_splitter import parse_model_messages
