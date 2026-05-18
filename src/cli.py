@@ -10,11 +10,21 @@ from .example_selector import load_example_bank, select_relevant_examples
 from .model_client import ModelClientError, OpenAICompatibleClient, OpenAICompatibleConfig
 from .output_parser import messages_json, parse_strict_messages
 from .prompt_builder import build_chat_messages, load_fewshot_examples, load_history
+from .social_engine import (
+    PersonMemory,
+    analyze_message,
+    decide_reply,
+    load_social_state,
+    save_social_state,
+    social_prompt_block,
+    update_social_state,
+)
 
 
 DEFAULT_STYLE_PROFILE = Path("data/processed/style_profile.json")
 DEFAULT_FEWSHOTS = Path("data/processed/fewshot_examples.json")
 DEFAULT_EXAMPLE_BANK = Path("data/processed/conversations.cleaned.jsonl")
+DEFAULT_SOCIAL_STATE = Path("state/social_state.json")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -30,6 +40,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-dynamic-fewshots", action="store_true")
     parser.add_argument("--context", action="append", default=[], help="Recent history line, repeatable.")
     parser.add_argument("--history", type=Path, help="Optional text or JSONL history file.")
+    parser.add_argument("--social-state", type=Path, default=DEFAULT_SOCIAL_STATE)
+    parser.add_argument("--no-social", action="store_true")
+    parser.add_argument("--user-id", default="local_user")
+    parser.add_argument("--display-name", default="USER")
+    parser.add_argument("--conversation-id", default="local_cli")
+    parser.add_argument("--bot-name", action="append", default=["human", "bot"])
+    parser.add_argument("--server-channel", action="store_true", help="Treat input as a server channel, not a DM.")
+    parser.add_argument("--mentioned", action="store_true", help="Mark the bot as explicitly mentioned.")
+    parser.add_argument("--force-reply", action="store_true")
     parser.add_argument("--temperature", type=float, default=0.7)
     parser.add_argument("--top-p", type=float, default=0.9)
     parser.add_argument("--max-tokens", type=int, default=512)
@@ -48,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     example_bank = [] if args.no_dynamic_fewshots else load_example_bank(args.example_bank)
     history = [*load_history(args.history), *args.context]
     thinking = args.think and not args.no_think
+    social_state = None if args.no_social else load_social_state(args.social_state)
 
     client = None
     if not args.mock:
@@ -69,6 +89,7 @@ def main(argv: list[str] | None = None) -> int:
             example_bank=example_bank,
             history=history,
             thinking=thinking,
+            social_state=social_state,
         )
 
     user_message = " ".join(args.message).strip() or sys.stdin.read().strip()
@@ -76,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("message is required via argument/stdin, or use --chat")
 
     try:
-        raw = _generate_raw(args, client, user_message, history, style_profile, static_fewshots, example_bank, thinking)
+        raw = _generate_raw(args, client, user_message, history, style_profile, static_fewshots, example_bank, thinking, social_state)
     except ModelClientError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -87,8 +108,7 @@ def main(argv: list[str] | None = None) -> int:
 
     messages, _was_strict = parse_strict_messages(raw)
     if not messages:
-        print("error: model returned no usable messages", file=sys.stderr)
-        return 3
+        return 0
 
     if args.json:
         print(messages_json(messages))
@@ -107,6 +127,7 @@ def _chat_loop(
     example_bank: list[dict],
     history: list[str],
     thinking: bool,
+    social_state,
 ) -> int:
     print("Human style chat. Tape /exit pour quitter, /reset pour vider l'historique.")
     if args.mock:
@@ -126,19 +147,20 @@ def _chat_loop(
             print("historique vidé")
             continue
         try:
-            raw = _generate_raw(args, client, user_message, history, style_profile, static_fewshots, example_bank, thinking)
+            raw = _generate_raw(args, client, user_message, history, style_profile, static_fewshots, example_bank, thinking, social_state)
         except ModelClientError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
         messages, _was_strict = parse_strict_messages(raw)
         if not messages:
-            print("error: model returned no usable messages", file=sys.stderr)
             continue
         history.append(f"USER: {user_message}")
         for message in messages:
             print(f"me> {message}")
             history.append(f"ME: {message}")
         del history[:-40]
+        if social_state is not None:
+            save_social_state(args.social_state, social_state)
 
 
 def _generate_raw(
@@ -150,9 +172,35 @@ def _generate_raw(
     static_fewshots: list[dict],
     example_bank: list[dict],
     thinking: bool,
+    social_state,
 ) -> str:
     if args.mock:
         return _mock_response(user_message)
+    social_context = None
+    analysis = decision = person = None
+    if social_state is not None:
+        analysis = analyze_message(
+            user_message,
+            bot_names=args.bot_name,
+            is_dm=not args.server_channel,
+            mentioned=args.mentioned,
+            user_id=args.user_id,
+            state=social_state,
+        )
+        person = social_state.people.setdefault(args.user_id, PersonMemory(user_id=args.user_id, display_name=args.display_name))
+        decision = decide_reply(analysis, social_state, person)
+        if not decision.should_reply and not args.force_reply:
+            update_social_state(
+                social_state,
+                user_id=args.user_id,
+                display_name=args.display_name,
+                conversation_id=args.conversation_id,
+                text=user_message,
+                analysis=analysis,
+                replied=False,
+            )
+            return messages_json([])
+        social_context = social_prompt_block(analysis, decision, person, social_state)
     dynamic = select_relevant_examples(
         example_bank,
         user_message=user_message,
@@ -160,7 +208,7 @@ def _generate_raw(
         limit=args.fewshot_limit,
     )
     fewshots = dynamic or static_fewshots[: args.fewshot_limit]
-    raw = _call_model(args, client, user_message, history, style_profile, fewshots, thinking)
+    raw = _call_model(args, client, user_message, history, style_profile, fewshots, thinking, social_context)
     messages, _strict = parse_strict_messages(raw)
     if _bad_messages(messages, user_message):
         retry_history = [
@@ -170,17 +218,38 @@ def _generate_raw(
                 "Réponds avec bon sens au dernier message, en style court Discord."
             ),
         ]
-        raw = _call_model(args, client, user_message, retry_history, style_profile, fewshots[:3], thinking)
+        raw = _call_model(args, client, user_message, retry_history, style_profile, fewshots[:3], thinking, social_context)
+    if social_state is not None and analysis is not None:
+        update_social_state(
+            social_state,
+            user_id=args.user_id,
+            display_name=args.display_name,
+            conversation_id=args.conversation_id,
+            text=user_message,
+            analysis=analysis,
+            replied=True,
+        )
+        save_social_state(args.social_state, social_state)
     return raw
 
 
-def _call_model(args, client, user_message: str, history: list[str], style_profile: dict | None, fewshots: list[dict], thinking: bool) -> str:
+def _call_model(
+    args,
+    client,
+    user_message: str,
+    history: list[str],
+    style_profile: dict | None,
+    fewshots: list[dict],
+    thinking: bool,
+    social_context: str | None,
+) -> str:
     prompt_messages = build_chat_messages(
         user_message=user_message,
         context=history,
         style_profile=style_profile,
         fewshot_examples=fewshots,
         thinking=thinking,
+        social_context=social_context,
     )
     return client.chat(
         prompt_messages,

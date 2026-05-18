@@ -13,8 +13,7 @@ def parse_strict_messages(raw_text: str, *, max_messages: int = 8) -> tuple[list
     if isinstance(payload, dict) and isinstance(payload.get("messages"), list):
         messages = [_clean_message(item) for item in payload["messages"]]
         cleaned = [message for message in messages if message]
-        if cleaned:
-            return cleaned[:max_messages], True
+        return cleaned[:max_messages], True
 
     repaired = _repair_jsonish_messages(raw_text)
     if repaired:
