@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from src.anonymizer import anonymize_rows
 from src.cleaned_conversations import CleanedConversationConfig, build_cleaned_conversations
+from src.cli import main as cli_main
 from src.dataset_builder import DatasetConfig, build_training_examples
 from src.discord_export import parse_discord_chat_exporter
 from src.message_splitter import parse_model_messages
+from src.output_parser import parse_strict_messages
+from src.prompt_builder import load_fewshot_examples
 from src.style_profile import build_style_profile
 
 
@@ -95,3 +99,24 @@ def test_build_cleaned_conversations_groups_target_bursts() -> None:
         "2026-01-01T10:00:30+00:00",
         "2026-01-01T10:01:00+00:00",
     ]
+
+
+def test_output_parser_repairs_jsonish_messages() -> None:
+    messages, was_strict = parse_strict_messages("messages: ['okok', 'je check']")
+    assert messages == ["okok", "je check"]
+    assert was_strict is False
+
+
+def test_load_fewshot_examples_json() -> None:
+    with TemporaryDirectory() as directory:
+        path = Path(directory) / "fewshot_examples.json"
+        path.write_text(
+            '{"examples":[{"context":[{"speaker":"PERSON_A","text":"tu viens ?"}],"target_messages":["ouais","2 sec"]}]}',
+            encoding="utf-8",
+        )
+        examples = load_fewshot_examples(path, limit=2)
+    assert examples == [{"context": ["PERSON_A: tu viens ?"], "target_messages": ["ouais", "2 sec"]}]
+
+
+def test_cli_mock_prints_discord_lines() -> None:
+    assert cli_main(["--mock", "--style-profile", "missing.json", "--fewshots", "missing.json", "tu peux check ?"]) == 0
