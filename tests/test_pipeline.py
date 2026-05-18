@@ -42,6 +42,7 @@ def test_discord_export_to_dataset_pipeline() -> None:
     assert len(rows) == 3
     assert summary["rows"] == 3
     assert "<EMAIL_" in anonymized[0]["content"]
+    assert "Alice" not in anonymized[0]["content"]
     assert anonymized[1]["author"] == "<TARGET_USER>"
     assert examples[0]["output"]["messages"] == ["ouais j'arrive", "2 sec"]
     assert profile["target_message_count"] == 2
