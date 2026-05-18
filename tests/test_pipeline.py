@@ -11,6 +11,7 @@ from src.discord_export import parse_discord_chat_exporter
 from src.message_splitter import parse_model_messages
 from src.output_parser import parse_strict_messages
 from src.prompt_builder import load_fewshot_examples
+from src.style_eval import build_blind_review, evaluate_predictions, parse_eval_rows
 from src.style_profile import build_style_profile
 
 
@@ -120,3 +121,23 @@ def test_load_fewshot_examples_json() -> None:
 
 def test_cli_mock_prints_discord_lines() -> None:
     assert cli_main(["--mock", "--style-profile", "missing.json", "--fewshots", "missing.json", "tu peux check ?"]) == 0
+
+
+def test_style_eval_aggregates_and_blind_review() -> None:
+    rows = [
+        {
+            "conversation_id": "case_1",
+            "context": [{"speaker": "PERSON_A", "text": "tu viens ?"}],
+            "target_messages": ["ouais 2 sec", "jsp"],
+        }
+    ]
+    cases = parse_eval_rows(rows)
+    report = evaluate_predictions(cases, {"case_1": ["ouais attends", "je check"]})
+    blind = build_blind_review(cases, {"case_1": ["ouais attends", "je check"]})
+
+    assert report["aggregate"]["cases"] == 1
+    assert report["aggregate"]["generated_cases"] == 1
+    assert "avg_lexical_jaccard" in report["aggregate"]["similarity"]
+    assert blind[0]["review_id"]
+    assert blind[0]["human_choice"] is None
+    assert "answer_key" in blind[0]
