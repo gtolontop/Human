@@ -42,6 +42,7 @@ Dans le chat:
 - tape ton message puis entree;
 - `/reset` vide l'historique de la session;
 - `/exit` quitte.
+- l'etat social/emotionnel est stocke localement dans `state/social_state.json`.
 
 Le CLI selectionne automatiquement des exemples proches dans
 `data/processed/conversations.cleaned.jsonl` a chaque message. Ca evite d'envoyer
@@ -51,6 +52,37 @@ Pour desactiver ce comportement:
 ```powershell
 python -m src.cli --chat --no-dynamic-fewshots --base-url http://127.0.0.1:8080/v1 --api-key yourbot-local --model qwen3.6-27b --no-response-format
 ```
+
+## Moteur social local
+
+Le CLI maintient une memoire locale par personne et conversation:
+
+- etat emotionnel evolutif: energie, attention, stress, patience, playfulness, affection, irritation, curiosity;
+- memoire personne: relation, familiarite, trust, warmth, irritation, derniers contacts;
+- memoire conversation: derniers messages et timestamps;
+- analyse du message: `addressing_bot`, `intent`, `tone`, `urgency`, `reply_expected`;
+- decision: `should_reply`, `delay_seconds`, `reply_style`, `max_messages`, `emotional_color`.
+
+Options utiles pour preparer le futur bot Discord:
+
+```powershell
+python -m src.cli --chat `
+  --user-id "discord_user_id" `
+  --display-name "Pseudo" `
+  --conversation-id "dm_or_channel_id" `
+  --bot-name "human" `
+  --mentioned `
+  --server-channel
+```
+
+En DM, le bot considere qu'on lui parle. En serveur, il observe par defaut et ne repond que si mentionne,
+adresse directement, ou si l'intention le justifie. Pour tester sans modele:
+
+```powershell
+python scripts/simulate_social.py --reset
+```
+
+La memoire reste locale dans `state/`, ignoree par Git.
 
 Commande directe sans launcher:
 
