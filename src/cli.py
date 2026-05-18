@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .data_io import read_json
+from .example_selector import load_example_bank, select_relevant_examples
 from .model_client import ModelClientError, OpenAICompatibleClient, OpenAICompatibleConfig
 from .output_parser import messages_json, parse_strict_messages
 from .prompt_builder import build_chat_messages, load_fewshot_examples, load_history
@@ -13,6 +14,7 @@ from .prompt_builder import build_chat_messages, load_fewshot_examples, load_his
 
 DEFAULT_STYLE_PROFILE = Path("data/processed/style_profile.json")
 DEFAULT_FEWSHOTS = Path("data/processed/fewshot_examples.json")
+DEFAULT_EXAMPLE_BANK = Path("data/processed/conversations.cleaned.jsonl")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -23,7 +25,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--api-key", default=os.getenv("OPENAI_API_KEY", "local-not-needed"))
     parser.add_argument("--style-profile", type=Path, default=DEFAULT_STYLE_PROFILE)
     parser.add_argument("--fewshots", type=Path, default=DEFAULT_FEWSHOTS)
-    parser.add_argument("--fewshot-limit", type=int, default=4)
+    parser.add_argument("--fewshot-limit", type=int, default=6)
+    parser.add_argument("--example-bank", type=Path, default=DEFAULT_EXAMPLE_BANK)
+    parser.add_argument("--no-dynamic-fewshots", action="store_true")
     parser.add_argument("--context", action="append", default=[], help="Recent history line, repeatable.")
     parser.add_argument("--history", type=Path, help="Optional text or JSONL history file.")
     parser.add_argument("--temperature", type=float, default=0.7)
@@ -40,7 +44,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     style_profile = _read_optional_json(args.style_profile)
-    fewshots = load_fewshot_examples(args.fewshots, limit=args.fewshot_limit)
+    static_fewshots = load_fewshot_examples(args.fewshots, limit=args.fewshot_limit)
+    example_bank = [] if args.no_dynamic_fewshots else load_example_bank(args.example_bank)
     history = [*load_history(args.history), *args.context]
     thinking = args.think and not args.no_think
 
@@ -56,14 +61,22 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if args.chat:
-        return _chat_loop(args, client=client, style_profile=style_profile, fewshots=fewshots, history=history, thinking=thinking)
+        return _chat_loop(
+            args,
+            client=client,
+            style_profile=style_profile,
+            static_fewshots=static_fewshots,
+            example_bank=example_bank,
+            history=history,
+            thinking=thinking,
+        )
 
     user_message = " ".join(args.message).strip() or sys.stdin.read().strip()
     if not user_message:
         parser.error("message is required via argument/stdin, or use --chat")
 
     try:
-        raw = _generate_raw(args, client, user_message, history, style_profile, fewshots, thinking)
+        raw = _generate_raw(args, client, user_message, history, style_profile, static_fewshots, example_bank, thinking)
     except ModelClientError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -85,7 +98,16 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _chat_loop(args, *, client, style_profile: dict | None, fewshots: list[dict], history: list[str], thinking: bool) -> int:
+def _chat_loop(
+    args,
+    *,
+    client,
+    style_profile: dict | None,
+    static_fewshots: list[dict],
+    example_bank: list[dict],
+    history: list[str],
+    thinking: bool,
+) -> int:
     print("Human style chat. Tape /exit pour quitter, /reset pour vider l'historique.")
     if args.mock:
         print("Mode mock offline actif.")
@@ -104,7 +126,7 @@ def _chat_loop(args, *, client, style_profile: dict | None, fewshots: list[dict]
             print("historique vidé")
             continue
         try:
-            raw = _generate_raw(args, client, user_message, history, style_profile, fewshots, thinking)
+            raw = _generate_raw(args, client, user_message, history, style_profile, static_fewshots, example_bank, thinking)
         except ModelClientError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
@@ -125,11 +147,34 @@ def _generate_raw(
     user_message: str,
     history: list[str],
     style_profile: dict | None,
-    fewshots: list[dict],
+    static_fewshots: list[dict],
+    example_bank: list[dict],
     thinking: bool,
 ) -> str:
     if args.mock:
         return _mock_response(user_message)
+    dynamic = select_relevant_examples(
+        example_bank,
+        user_message=user_message,
+        history=history,
+        limit=args.fewshot_limit,
+    )
+    fewshots = dynamic or static_fewshots[: args.fewshot_limit]
+    raw = _call_model(args, client, user_message, history, style_profile, fewshots, thinking)
+    messages, _strict = parse_strict_messages(raw)
+    if _bad_messages(messages, user_message):
+        retry_history = [
+            *history,
+            (
+                "SYSTEM_FEEDBACK: La réponse précédente était trop générique, répétée ou hors contexte. "
+                "Réponds avec bon sens au dernier message, en style court Discord."
+            ),
+        ]
+        raw = _call_model(args, client, user_message, retry_history, style_profile, fewshots[:3], thinking)
+    return raw
+
+
+def _call_model(args, client, user_message: str, history: list[str], style_profile: dict | None, fewshots: list[dict], thinking: bool) -> str:
     prompt_messages = build_chat_messages(
         user_message=user_message,
         context=history,
@@ -144,6 +189,21 @@ def _generate_raw(
         max_tokens=args.max_tokens,
         response_format=not args.no_response_format,
     )
+
+
+def _bad_messages(messages: list[str], user_message: str) -> bool:
+    if not messages:
+        return True
+    lowered_user = user_message.casefold().strip(" ?!.")
+    lowered = [message.casefold().strip(" ?!.") for message in messages]
+    if lowered_user and any(message == lowered_user for message in lowered):
+        return True
+    if len(set(lowered)) < len(lowered):
+        return True
+    joined = " ".join(lowered)
+    if joined in {"c'est la vie", "tfq", "...", "non"} and lowered_user not in {"ça va", "ca va"}:
+        return True
+    return False
 
 
 def _read_optional_json(path: Path | None) -> dict | None:
