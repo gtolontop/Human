@@ -1,5 +1,6 @@
 param(
   [string]$ModelPath = "C:\Users\teamr\Desktop\ai\llama\models\Qwen3.6-27B-UD-IQ2_XXS.gguf",
+  [string]$Quant = "",
   [string]$Alias = "qwen3.6-27b",
   [int]$Port = 8080,
   [int]$ContextSize = 32768,
@@ -10,9 +11,24 @@ $ErrorActionPreference = "Stop"
 $Repo = Join-Path $PSScriptRoot ".."
 $LlamaDir = "C:\Users\teamr\Desktop\ai\llama"
 $Server = Join-Path $LlamaDir "llama-server.exe"
+$ModelsDir = Join-Path $LlamaDir "models"
 $LogDir = Join-Path $Repo "logs"
 $OutLog = Join-Path $LogDir "qwen36-server.out.log"
 $ErrLog = Join-Path $LogDir "qwen36-server.err.log"
+
+if ($Quant) {
+  $Map = @{
+    "iq2_xxs" = "Qwen3.6-27B-UD-IQ2_XXS.gguf"
+    "iq2_m" = "Qwen3.6-27B-UD-IQ2_M.gguf"
+    "q2_k_xl" = "Qwen3.6-27B-UD-Q2_K_XL.gguf"
+    "q3_k_xl" = "Qwen3.6-27B-UD-Q3_K_XL.gguf"
+  }
+  $Key = $Quant.ToLowerInvariant()
+  if (-not $Map.ContainsKey($Key)) {
+    throw "Unknown quant '$Quant'. Use iq2_xxs, iq2_m, q2_k_xl, or q3_k_xl."
+  }
+  $ModelPath = Join-Path $ModelsDir $Map[$Key]
+}
 
 if (-not (Test-Path $Server)) {
   throw "llama-server not found: $Server"
