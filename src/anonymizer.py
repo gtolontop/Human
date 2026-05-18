@@ -76,7 +76,9 @@ def anonymize_rows(
     target_author_norm = target_author.casefold() if target_author else None
     target_author_id_norm = target_author_id.strip() if target_author_id else None
 
-    result: list[dict[str, Any]] = []
+    author_labels: list[str] = []
+    target_flags: list[bool] = []
+    visible_replacements: dict[str, str] = {}
     for row in rows:
         author_name = str(row.get("author_name") or "")
         display_name = str(row.get("author_display_name") or author_name)
@@ -88,18 +90,27 @@ def anonymize_rows(
             target_author=target_author_norm,
             target_author_id=target_author_id_norm,
         )
-        author_placeholder = state.placeholder("author", author_id or display_name or author_name, "USER")
+        raw_placeholder = state.placeholder("author", author_id or display_name or author_name, "USER")
+        public_author = "<TARGET_USER>" if is_target else raw_placeholder
+        author_labels.append(public_author)
+        target_flags.append(is_target)
+        for visible_name in {author_name, display_name} - {""}:
+            if is_target or visible_name not in visible_replacements:
+                visible_replacements[visible_name] = public_author
+
+    result: list[dict[str, Any]] = []
+    for row, public_author, is_target in zip(rows, author_labels, target_flags, strict=True):
         content = str(row.get("content") or "")
 
-        for visible_name in sorted({author_name, display_name} - {""}, key=len, reverse=True):
-            content = _replace_literal(content, visible_name, author_placeholder)
+        for visible_name, replacement in sorted(visible_replacements.items(), key=lambda item: len(item[0]), reverse=True):
+            content = _replace_literal(content, visible_name, replacement)
 
         content = anonymize_text(content, state=state, custom_terms=terms)
         result.append(
             {
                 "timestamp": row.get("timestamp"),
                 "channel": _safe_channel(row, state),
-                "author": "<TARGET_USER>" if is_target else author_placeholder,
+                "author": public_author,
                 "is_target": is_target,
                 "is_bot": bool(row.get("is_bot")),
                 "content": content,
