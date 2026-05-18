@@ -33,48 +33,40 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--think", action="store_true", help="Allow invisible reasoning in prompt wording.")
     parser.add_argument("--no-think", action="store_true", help="Ask the model for no visible reasoning.")
     parser.add_argument("--mock", action="store_true", help="Offline mock mode; no model request is sent.")
+    parser.add_argument("--chat", "--interactive", action="store_true", help="Start an interactive chat loop.")
     parser.add_argument("--json", action="store_true", help="Print normalized JSON instead of Discord-style lines.")
     parser.add_argument("--raw", action="store_true", help="Print raw model text before parsing.")
     parser.add_argument("--no-response-format", action="store_true", help="Do not send response_format to the endpoint.")
     args = parser.parse_args(argv)
 
-    user_message = " ".join(args.message).strip() or sys.stdin.read().strip()
-    if not user_message:
-        parser.error("message is required via argument or stdin")
-
     style_profile = _read_optional_json(args.style_profile)
     fewshots = load_fewshot_examples(args.fewshots, limit=args.fewshot_limit)
     history = [*load_history(args.history), *args.context]
     thinking = args.think and not args.no_think
-    prompt_messages = build_chat_messages(
-        user_message=user_message,
-        context=history,
-        style_profile=style_profile,
-        fewshot_examples=fewshots,
-        thinking=thinking,
-    )
 
-    if args.mock:
-        raw = _mock_response(user_message)
-    else:
-        config = OpenAICompatibleConfig.from_env().with_overrides(
-            base_url=args.base_url,
-            api_key=args.api_key,
-            model=args.model,
-            timeout_seconds=args.timeout,
-        )
-        client = OpenAICompatibleClient(config)
-        try:
-            raw = client.chat(
-                prompt_messages,
-                temperature=args.temperature,
-                top_p=args.top_p,
-                max_tokens=args.max_tokens,
-                response_format=not args.no_response_format,
+    client = None
+    if not args.mock:
+        client = OpenAICompatibleClient(
+            OpenAICompatibleConfig.from_env().with_overrides(
+                base_url=args.base_url,
+                api_key=args.api_key,
+                model=args.model,
+                timeout_seconds=args.timeout,
             )
-        except ModelClientError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 2
+        )
+
+    if args.chat:
+        return _chat_loop(args, client=client, style_profile=style_profile, fewshots=fewshots, history=history, thinking=thinking)
+
+    user_message = " ".join(args.message).strip() or sys.stdin.read().strip()
+    if not user_message:
+        parser.error("message is required via argument/stdin, or use --chat")
+
+    try:
+        raw = _generate_raw(args, client, user_message, history, style_profile, fewshots, thinking)
+    except ModelClientError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
 
     if args.raw:
         print(raw)
@@ -91,6 +83,67 @@ def main(argv: list[str] | None = None) -> int:
         for message in messages:
             print(message)
     return 0
+
+
+def _chat_loop(args, *, client, style_profile: dict | None, fewshots: list[dict], history: list[str], thinking: bool) -> int:
+    print("Human style chat. Tape /exit pour quitter, /reset pour vider l'historique.")
+    if args.mock:
+        print("Mode mock offline actif.")
+    while True:
+        try:
+            user_message = input("toi> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 0
+        if not user_message:
+            continue
+        if user_message in {"/exit", "/quit"}:
+            return 0
+        if user_message == "/reset":
+            history.clear()
+            print("historique vidé")
+            continue
+        try:
+            raw = _generate_raw(args, client, user_message, history, style_profile, fewshots, thinking)
+        except ModelClientError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        messages, _was_strict = parse_strict_messages(raw)
+        if not messages:
+            print("error: model returned no usable messages", file=sys.stderr)
+            continue
+        history.append(f"USER: {user_message}")
+        for message in messages:
+            print(f"me> {message}")
+            history.append(f"ME: {message}")
+        del history[:-40]
+
+
+def _generate_raw(
+    args,
+    client,
+    user_message: str,
+    history: list[str],
+    style_profile: dict | None,
+    fewshots: list[dict],
+    thinking: bool,
+) -> str:
+    if args.mock:
+        return _mock_response(user_message)
+    prompt_messages = build_chat_messages(
+        user_message=user_message,
+        context=history,
+        style_profile=style_profile,
+        fewshot_examples=fewshots,
+        thinking=thinking,
+    )
+    return client.chat(
+        prompt_messages,
+        temperature=args.temperature,
+        top_p=args.top_p,
+        max_tokens=args.max_tokens,
+        response_format=not args.no_response_format,
+    )
 
 
 def _read_optional_json(path: Path | None) -> dict | None:
