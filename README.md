@@ -23,6 +23,32 @@ python -m venv .venv
 python -m pip install -e .
 ```
 
+## Parler a l'assistant
+
+Mode offline immediat, sans modele:
+
+```cmd
+scripts\chat.cmd --mock
+```
+
+Mode modele local, quand un endpoint OpenAI-compatible tourne sur `http://127.0.0.1:8000/v1`:
+
+```cmd
+scripts\chat.cmd
+```
+
+Dans le chat:
+
+- tape ton message puis entree;
+- `/reset` vide l'historique de la session;
+- `/exit` quitte.
+
+Commande directe sans launcher:
+
+```powershell
+python -m src.cli --chat --base-url http://127.0.0.1:8000/v1 --model Qwen/Qwen3.6-27B
+```
+
 Copie `.env.example` vers `.env` si ton shell ne fournit pas deja ces variables:
 
 ```powershell
