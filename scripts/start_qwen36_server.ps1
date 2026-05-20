@@ -3,7 +3,7 @@ param(
   [string]$Quant = "",
   [string]$Alias = "qwen3.6-27b",
   [int]$Port = 8080,
-  [int]$ContextSize = 32768,
+  [int]$ContextSize = 8192,
   [string]$ApiKey = "yourbot-local",
   [switch]$Mtp,
   [string]$MtpRepo = "unsloth/Qwen3.6-27B-MTP-GGUF:UD-Q4_K_XL",
